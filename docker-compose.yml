@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sri_gateway_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sri_user
+      POSTGRES_PASSWORD: sri_password
+      POSTGRES_DB: sri_gateway_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - sri_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sri_user -d sri_gateway_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sri_gateway_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - sri_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sri_gateway_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: "postgresql://sri_user:sri_password@postgres:5432/sri_gateway_db?schema=public"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MASTER_ENCRYPTION_KEY: "${MASTER_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+      CERTIFICATES_STORAGE_DIR: "/app/storage/certificates"
+    volumes:
+      - sri_certs_data:/app/storage/certificates
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  sri_postgres_data:
+  sri_redis_data:
+  sri_certs_data:
+

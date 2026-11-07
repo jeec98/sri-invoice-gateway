@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id                  String       @id @default(uuid())
+  name                String
+  ruc                 String       @unique @db.VarChar(13)
+  apiKeyHash          String       @unique @map("api_key_hash") @db.VarChar(64)
+  p12Binary           Bytes?       @map("p12_binary")
+  p12FilePath         String?      @map("p12_file_path")
+  passwordCiphertext  String?      @map("password_ciphertext")
+  passwordIv          String?      @map("password_iv")
+  passwordAuthTag     String?      @map("password_auth_tag")
+  certValidFrom       DateTime?    @map("cert_valid_from")
+  certValidTo         DateTime?    @map("cert_valid_to")
+  certSubject         String?      @map("cert_subject")
+  certIssuer          String?      @map("cert_issuer")
+  isActive            Boolean      @default(true) @map("is_active")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  invoiceJobs         InvoiceJob[]
+
+  @@map("tenants")
+}
+
+model InvoiceJob {
+  id                    String    @id @default(uuid())
+  tenantId              String    @map("tenant_id")
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  referenceId           String    @map("reference_id")
+  claveAcceso           String    @unique @map("clave_acceso") @db.VarChar(49)
+  ambiente              String    @db.VarChar(1)
+  status                String    @default("QUEUED")
+  webhookUrl            String    @map("webhook_url")
+  payloadJson           Json      @map("payload_json")
+  unsignedXml           String?   @map("unsigned_xml") @db.Text
+  signedXml             String?   @map("signed_xml") @db.Text
+  authorizedXml         String?   @map("authorized_xml") @db.Text
+  numeroAutorizacion    String?   @map("numero_autorizacion")
+  fechaAutorizacion     DateTime? @map("fecha_autorizacion")
+  sriMessages           Json?     @map("sri_messages")
+  webhookDelivered      Boolean   @default(false) @map("webhook_delivered")
+  webhookResponseStatus Int?      @map("webhook_response_status")
+  attempts              Int       @default(0)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId, referenceId])
+  @@index([status])
+  @@map("invoice_jobs")
+}
+

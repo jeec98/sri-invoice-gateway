@@ -1,0 +1,247 @@
+import { Injectable, Logger } from '@nestjs/common';
+import axios from 'axios';
+import { DOMParser } from '@xmldom/xmldom';
+import * as xpath from 'xpath';
+
+export interface SriMessage {
+  identificador: string;
+  mensaje: string;
+  informacionAdicional?: string;
+  tipo: string;
+}
+
+export interface SriRecepcionResult {
+  estado: 'RECIBIDA' | 'DEVUELTA' | string;
+  mensajes: SriMessage[];
+  rawXml: string;
+}
+
+export interface SriAutorizacionResult {
+  estado: 'AUTORIZADO' | 'NO AUTORIZADO' | 'EN PROCESO' | string;
+  numeroAutorizacion?: string;
+  fechaAutorizacion?: string;
+  ambiente?: string;
+  comprobanteXml?: string;
+  authorizedXml?: string;
+  mensajes: SriMessage[];
+  rawXml: string;
+}
+
+@Injectable()
+export class SriSoapClientService {
+  private readonly logger = new Logger(SriSoapClientService.name);
+
+  private readonly endpoints = {
+    '1': {
+      recepcion:
+        process.env.SRI_TEST_RECEPCION_URL ||
+        'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline',
+      autorizacion:
+        process.env.SRI_TEST_AUTORIZACION_URL ||
+        'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline',
+    },
+    '2': {
+      recepcion:
+        process.env.SRI_PROD_RECEPCION_URL ||
+        'https://cel.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline',
+      autorizacion:
+        process.env.SRI_PROD_AUTORIZACION_URL ||
+        'https://cel.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline',
+    },
+  };
+
+  /**
+   * Sends the signed XML (encoded in Base64) to SRI RecepcionComprobantesOffline (`validarComprobante`).
+   */
+  async validarComprobante(
+    signedXml: string,
+    ambiente: '1' | '2' | string,
+  ): Promise<SriRecepcionResult> {
+    const envKey = ambiente === '2' ? '2' : '1';
+    const url = this.endpoints[envKey].recepcion;
+    const xmlBase64 = Buffer.from(signedXml, 'utf8').toString('base64');
+    const soapEnvelope = this.buildRecepcionEnvelope(xmlBase64);
+
+    this.logger.debug(`Sending SOAP validarComprobante to ${url}`);
+
+    const response = await axios.post<string>(url, soapEnvelope, {
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: '',
+      },
+      timeout: 25000,
+      responseType: 'text',
+    });
+
+    return this.parseRecepcionResponse(response.data);
+  }
+
+  /**
+   * Queries SRI AutorizacionComprobantesOffline (`autorizacionComprobante`) by 49-digit Clave de Acceso.
+   */
+  async autorizacionComprobante(
+    claveAcceso: string,
+    ambiente: '1' | '2' | string,
+  ): Promise<SriAutorizacionResult> {
+    const envKey = ambiente === '2' ? '2' : '1';
+    const url = this.endpoints[envKey].autorizacion;
+    const soapEnvelope = this.buildAutorizacionEnvelope(claveAcceso);
+
+    this.logger.debug(`Sending SOAP autorizacionComprobante (${claveAcceso}) to ${url}`);
+
+    const response = await axios.post<string>(url, soapEnvelope, {
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: '',
+      },
+      timeout: 25000,
+      responseType: 'text',
+    });
+
+    return this.parseAutorizacionResponse(response.data);
+  }
+
+  buildRecepcionEnvelope(xmlBase64: string): string {
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ec="http://ec.gob.sri.ws.recepcion">',
+      '  <soapenv:Header/>',
+      '  <soapenv:Body>',
+      '    <ec:validarComprobante>',
+      `      <xml>${xmlBase64}</xml>`,
+      '    </ec:validarComprobante>',
+      '  </soapenv:Body>',
+      '</soapenv:Envelope>',
+    ].join('\n');
+  }
+
+  buildAutorizacionEnvelope(claveAcceso: string): string {
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ec="http://ec.gob.sri.ws.autorizacion">',
+      '  <soapenv:Header/>',
+      '  <soapenv:Body>',
+      '    <ec:autorizacionComprobante>',
+      `      <claveAccesoComprobante>${claveAcceso}</claveAccesoComprobante>`,
+      '    </ec:autorizacionComprobante>',
+      '  </soapenv:Body>',
+      '</soapenv:Envelope>',
+    ].join('\n');
+  }
+
+  parseRecepcionResponse(soapXml: string): SriRecepcionResult {
+    const doc = new DOMParser().parseFromString(soapXml, 'text/xml');
+    const estado = this.extractNodeText(doc, '//*[local-name()="estado"]') || 'DEVUELTA';
+    const mensajes = this.extractMessages(doc);
+
+    return {
+      estado,
+      mensajes,
+      rawXml: soapXml,
+    };
+  }
+
+  parseAutorizacionResponse(soapXml: string): SriAutorizacionResult {
+    const doc = new DOMParser().parseFromString(soapXml, 'text/xml');
+    const autorizacionNodes = xpath.select('//*[local-name()="autorizacion"]', doc) as Node[];
+
+    if (!autorizacionNodes || autorizacionNodes.length === 0) {
+      return {
+        estado: 'EN PROCESO',
+        mensajes: [],
+        rawXml: soapXml,
+      };
+    }
+
+    const firstAuth = autorizacionNodes[0];
+    const estado =
+      this.extractNodeText(firstAuth, './*[local-name()="estado"]') || 'EN PROCESO';
+    const numeroAutorizacion =
+      this.extractNodeText(firstAuth, './*[local-name()="numeroAutorizacion"]') || undefined;
+    const fechaAutorizacion =
+      this.extractNodeText(firstAuth, './*[local-name()="fechaAutorizacion"]') || undefined;
+    const ambiente =
+      this.extractNodeText(firstAuth, './*[local-name()="ambiente"]') || undefined;
+    const comprobanteXml =
+      this.extractNodeText(firstAuth, './*[local-name()="comprobante"]') || undefined;
+    const mensajes = this.extractMessages(firstAuth);
+
+    const authorizedXml =
+      estado === 'AUTORIZADO' && comprobanteXml
+        ? this.buildAuthorizedDocumentXml({
+            estado,
+            numeroAutorizacion: numeroAutorizacion || '',
+            fechaAutorizacion: fechaAutorizacion || new Date().toISOString(),
+            ambiente: ambiente || 'PRUEBAS',
+            comprobanteXml,
+          })
+        : undefined;
+
+    return {
+      estado,
+      numeroAutorizacion,
+      fechaAutorizacion,
+      ambiente,
+      comprobanteXml,
+      authorizedXml,
+      mensajes,
+      rawXml: soapXml,
+    };
+  }
+
+  private buildAuthorizedDocumentXml(params: {
+    estado: string;
+    numeroAutorizacion: string;
+    fechaAutorizacion: string;
+    ambiente: string;
+    comprobanteXml: string;
+  }): string {
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<autorizacion>',
+      `  <estado>${params.estado}</estado>`,
+      `  <numeroAutorizacion>${params.numeroAutorizacion}</numeroAutorizacion>`,
+      `  <fechaAutorizacion>${params.fechaAutorizacion}</fechaAutorizacion>`,
+      `  <ambiente>${params.ambiente}</ambiente>`,
+      `  <comprobante><![CDATA[${params.comprobanteXml}]]></comprobante>`,
+      '  <mensajes/>',
+      '</autorizacion>',
+    ].join('\n');
+  }
+
+  private extractMessages(contextNode: Node): SriMessage[] {
+    const msgNodes = xpath.select('.//*[local-name()="mensaje"]', contextNode) as Node[];
+    const results: SriMessage[] = [];
+
+    for (const node of msgNodes) {
+      // Only process <mensaje> elements that are parent containers (having an <identificador> child)
+      const identificador = this.extractNodeText(node, './*[local-name()="identificador"]');
+      if (!identificador) {
+        continue;
+      }
+      const mensajeText = this.extractNodeText(node, './*[local-name()="mensaje"]') || '';
+      const informacionAdicional =
+        this.extractNodeText(node, './*[local-name()="informacionAdicional"]') || undefined;
+      const tipo = this.extractNodeText(node, './*[local-name()="tipo"]') || 'INFO';
+
+      results.push({
+        identificador,
+        mensaje: mensajeText,
+        informacionAdicional,
+        tipo,
+      });
+    }
+
+    return results;
+  }
+
+  private extractNodeText(contextNode: Node, expression: string): string | null {
+    const nodes = xpath.select(expression, contextNode) as Node[];
+    if (!nodes || nodes.length === 0) {
+      return null;
+    }
+    const text = nodes[0].textContent;
+    return text ? text.trim() : null;
+  }
+}
+
