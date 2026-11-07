@@ -1,23 +1,46 @@
-# Dependencies & Build
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+
+# Compiled output & TypeScript cache
 dist/
+build/
 coverage/
 *.tsbuildinfo
 
-# Environment & Secrets
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment & Cryptographic Secrets (NEVER COMMIT)
 .env
 .env.*
 !.env.example
 storage/
 *.p12
 *.pfx
+*.pem
+*.key
 
-# AI Agent Local Rules
+# OS & IDEs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# AI Agent Local Rules & Context
 .cursorrules
 .clinerules
 .windsurfrules
 .github/copilot-instructions.md
-.agents/AGENTS.md
-.agents/PROJECT_CONTEXT.md
+.agents/
 CLAUDE.md
 CLAUDE.local.md
