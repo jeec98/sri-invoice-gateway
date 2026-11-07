@@ -229,7 +229,11 @@ __decorate([
         description: 'URL del Webhook en el SaaS donde se notificará el resultado final',
         example: 'https://mi-saas.com/api/webhooks/sri',
     }),
-    (0, class_validator_1.IsUrl)({ require_tld: false }),
+    (0, class_validator_1.IsUrl)({
+        protocols: ['http', 'https'],
+        require_protocol: true,
+        require_tld: false,
+    }),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], CreateInvoiceDto.prototype, "webhookUrl", void 0);

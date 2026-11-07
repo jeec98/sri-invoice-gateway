@@ -29,6 +29,7 @@ export declare class SriSoapClientService {
     parseRecepcionResponse(soapXml: string): SriRecepcionResult;
     parseAutorizacionResponse(soapXml: string): SriAutorizacionResult;
     private buildAuthorizedDocumentXml;
+    private escapeXml;
     private extractMessages;
     private extractNodeText;
 }

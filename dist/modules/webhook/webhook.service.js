@@ -50,8 +50,17 @@ const crypto = __importStar(require("node:crypto"));
 let WebhookService = WebhookService_1 = class WebhookService {
     logger = new common_1.Logger(WebhookService_1.name);
     async dispatch(webhookUrl, payload) {
+        const envSecret = process.env.WEBHOOK_SIGNING_SECRET;
+        if (!envSecret && process.env.NODE_ENV === 'production') {
+            this.logger.error('MISSING_WEBHOOK_SECRET: WEBHOOK_SIGNING_SECRET is required in production.');
+            return { delivered: false };
+        }
+        if (!this.isSafeWebhookUrl(webhookUrl)) {
+            this.logger.error(`BLOCKED_WEBHOOK_URL: Unsafe or disallowed webhook target "${webhookUrl}" for claveAcceso=${payload.claveAcceso}`);
+            return { delivered: false };
+        }
         const bodyString = JSON.stringify(payload);
-        const secret = process.env.WEBHOOK_SIGNING_SECRET || 'whsec_sri_gateway_default_secret_key';
+        const secret = envSecret || 'whsec_sri_gateway_default_secret_key';
         const signature = crypto
             .createHmac('sha256', secret)
             .update(bodyString)
@@ -65,6 +74,7 @@ let WebhookService = WebhookService_1 = class WebhookService {
                     'X-SRI-Gateway-Signature': `sha256=${signature}`,
                 },
                 timeout: timeoutMs,
+                maxRedirects: 0,
             });
             this.logger.log(`Webhook delivered to ${webhookUrl} for claveAcceso=${payload.claveAcceso} [HTTP ${response.status}]`);
             return {
@@ -78,6 +88,33 @@ let WebhookService = WebhookService_1 = class WebhookService {
             return {
                 delivered: false,
             };
+        }
+    }
+    isSafeWebhookUrl(rawUrl) {
+        try {
+            const parsed = new URL(rawUrl);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return false;
+            }
+            const hostname = parsed.hostname.toLowerCase();
+            if (hostname === '169.254.169.254' || hostname === 'metadata.google.internal') {
+                return false;
+            }
+            if (process.env.NODE_ENV === 'production') {
+                if (hostname === 'localhost' ||
+                    hostname === '127.0.0.1' ||
+                    hostname === '::1' ||
+                    hostname === '[::1]' ||
+                    hostname.startsWith('10.') ||
+                    hostname.startsWith('192.168.') ||
+                    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch {
+            return false;
         }
     }
 };

@@ -28,6 +28,9 @@ let InvoicesController = class InvoicesController {
         return this.invoicesService.enqueueInvoice(tenant, dto);
     }
     async getInvoiceStatus(tenant, claveAcceso) {
+        if (!/^\d{49}$/.test(claveAcceso)) {
+            throw new common_1.BadRequestException('INVALID_CLAVE_ACCESO: La clave de acceso debe contener exactamente 49 dígitos numéricos.');
+        }
         return this.invoicesService.getInvoiceByClaveAcceso(tenant, claveAcceso);
     }
 };

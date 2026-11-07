@@ -46,8 +46,11 @@ let AesGcmService = class AesGcmService {
     algorithm = 'aes-256-gcm';
     ivLength = 12;
     getKey() {
-        const rawKey = process.env.MASTER_ENCRYPTION_KEY ||
-            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+        const envKey = process.env.MASTER_ENCRYPTION_KEY;
+        if (!envKey && process.env.NODE_ENV === 'production') {
+            throw new common_1.InternalServerErrorException('MISSING_MASTER_KEY: MASTER_ENCRYPTION_KEY environment variable is required in production.');
+        }
+        const rawKey = envKey || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
         if (rawKey.length === 64 && /^[0-9a-fA-F]+$/.test(rawKey)) {
             return Buffer.from(rawKey, 'hex');
         }

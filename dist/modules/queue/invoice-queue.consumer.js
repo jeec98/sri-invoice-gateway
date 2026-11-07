@@ -189,6 +189,16 @@ let InvoiceQueueConsumer = InvoiceQueueConsumer_1 = class InvoiceQueueConsumer e
             ? new Date(params.fechaAutorizacion)
             : undefined;
         const validFechaAuth = parsedFechaAuth && !isNaN(parsedFechaAuth.getTime()) ? parsedFechaAuth : undefined;
+        await this.prisma.invoiceJob.update({
+            where: { id: params.invoiceJobId },
+            data: {
+                status: params.status,
+                numeroAutorizacion: params.numeroAutorizacion,
+                fechaAutorizacion: validFechaAuth,
+                authorizedXml: params.authorizedXml,
+                sriMessages: params.sriMessages,
+            },
+        });
         const webhookResult = await this.webhookService.dispatch(params.webhookUrl, {
             event: 'sri.invoice.completed',
             jobId: params.invoiceJobId,
@@ -205,11 +215,6 @@ let InvoiceQueueConsumer = InvoiceQueueConsumer_1 = class InvoiceQueueConsumer e
         await this.prisma.invoiceJob.update({
             where: { id: params.invoiceJobId },
             data: {
-                status: params.status,
-                numeroAutorizacion: params.numeroAutorizacion,
-                fechaAutorizacion: validFechaAuth,
-                authorizedXml: params.authorizedXml,
-                sriMessages: params.sriMessages,
                 webhookDelivered: webhookResult.delivered,
                 webhookResponseStatus: webhookResult.statusCode,
             },

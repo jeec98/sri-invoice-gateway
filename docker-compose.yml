@@ -4,9 +4,9 @@ services:
     container_name: sri_gateway_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: sri_user
-      POSTGRES_PASSWORD: sri_password
-      POSTGRES_DB: sri_gateway_db
+      POSTGRES_USER: "${POSTGRES_USER:-sri_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-sri_password}"
+      POSTGRES_DB: "${POSTGRES_DB:-sri_gateway_db}"
     ports:
       - "5435:5432"
     volumes:
@@ -47,6 +47,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       MASTER_ENCRYPTION_KEY: "${MASTER_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+      WEBHOOK_SIGNING_SECRET: "${WEBHOOK_SIGNING_SECRET:-whsec_sri_gateway_default_secret_key}"
       CERTIFICATES_STORAGE_DIR: "/app/storage/certificates"
     volumes:
       - sri_certs_data:/app/storage/certificates

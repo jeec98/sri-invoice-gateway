@@ -63,7 +63,7 @@ let XadesBesSignerService = class XadesBesSignerService {
         if (!rootElement || rootElement.getAttribute('id') !== 'comprobante') {
             throw new common_1.BadRequestException('INVALID_XML_ROOT: El documento XML debe tener un nodo raíz con atributo id="comprobante".');
         }
-        const rnd = () => Math.floor(100000 + Math.random() * 899999);
+        const rnd = () => crypto.randomInt(100000, 1000000);
         const signatureId = `Signature${rnd()}`;
         const signatureValueId = `SignatureValue${rnd()}`;
         const signedPropertiesId = `Signature${rnd()}-SignedProperties${rnd()}`;

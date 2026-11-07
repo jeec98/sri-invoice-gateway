@@ -1,3 +1,18 @@
+# Dependencies & Build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+storage/
+*.p12
+*.pfx
+
+# AI Agent Local Rules
 .cursorrules
 .clinerules
 .windsurfrules

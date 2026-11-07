@@ -18,4 +18,5 @@ export declare class WebhookService {
         delivered: boolean;
         statusCode?: number;
     }>;
+    private isSafeWebhookUrl;
 }

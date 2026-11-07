@@ -38,6 +38,15 @@ let InvoicesService = class InvoicesService {
             !tenant.passwordAuthTag) {
             throw new common_1.BadRequestException('CERTIFICATE_NOT_CONFIGURED: El tenant aún no tiene un certificado electrónico (.p12) configurado. Suba uno en POST /v1/tenants/certificates.');
         }
+        const existingJob = await this.prisma.invoiceJob.findFirst({
+            where: {
+                tenantId: tenant.id,
+                referenceId: dto.referenceId,
+            },
+        });
+        if (existingJob) {
+            throw new common_1.ConflictException(`DUPLICATE_REFERENCE_ID: Ya existe un comprobante registrado con referenceId "${dto.referenceId}" (claveAcceso: ${existingJob.claveAcceso}).`);
+        }
         const claveAcceso = this.accessKeyService.generateAccessKey({
             fechaEmision: dto.fechaEmision,
             codDoc: '01',
