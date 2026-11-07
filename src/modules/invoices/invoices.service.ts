@@ -127,6 +127,7 @@ export class InvoicesService {
       sriMessages: job.sriMessages,
       authorizedXml: job.authorizedXml,
       webhookDelivered: job.webhookDelivered,
+      webhookResponseStatus: job.webhookResponseStatus,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     };

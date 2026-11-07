@@ -1,4 +1,5 @@
 import {
+  ArrayMinSize,
   IsArray,
   IsIn,
   IsNotEmpty,
@@ -95,6 +96,7 @@ export class InvoiceDetailDto {
 
   @ApiProperty({ type: [InvoiceTaxItemDto] })
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => InvoiceTaxItemDto)
   impuestos: InvoiceTaxItemDto[];
@@ -277,12 +279,14 @@ export class CreateInvoiceDto {
 
   @ApiProperty({ type: [InvoicePagoDto] })
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => InvoicePagoDto)
   pagos: InvoicePagoDto[];
 
   @ApiProperty({ type: [InvoiceDetailDto] })
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => InvoiceDetailDto)
   detalles: InvoiceDetailDto[];

@@ -70,11 +70,20 @@ export class WebhookService {
       };
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
+      const statusCode =
+        typeof error === 'object' &&
+        error !== null &&
+        'response' in error &&
+        typeof (error as { response?: { status?: unknown } }).response?.status === 'number'
+          ? ((error as { response: { status: number } }).response.status)
+          : undefined;
+
       this.logger.error(
         `Webhook delivery failed to ${webhookUrl} for claveAcceso=${payload.claveAcceso}: ${errMsg}`,
       );
       return {
         delivered: false,
+        statusCode,
       };
     }
   }
