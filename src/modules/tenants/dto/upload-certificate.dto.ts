@@ -3,7 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class UploadCertificateDto {
   @ApiProperty({
-    description: 'RUC de 13 dígitos del emisor (debe coincidir con el RUC del tenant o registrarse)',
+    description:
+      'RUC de 13 dígitos del emisor (debe coincidir con el RUC del tenant o registrarse)',
     example: '1790011674001',
   })
   @IsString()
@@ -39,4 +40,3 @@ export class CreateTenantDto {
   @Matches(/^\d{13}$/)
   ruc: string;
 }
-

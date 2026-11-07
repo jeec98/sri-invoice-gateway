@@ -27,12 +27,16 @@ export class AccessKeyService {
     const ruc = params.ruc.trim();
 
     if (!/^\d{13}$/.test(ruc)) {
-      throw new BadRequestException('INVALID_RUC: El RUC debe tener exactamente 13 dígitos numéricos.');
+      throw new BadRequestException(
+        'INVALID_RUC: El RUC debe tener exactamente 13 dígitos numéricos.',
+      );
     }
 
     const ambiente = String(params.ambiente).trim();
     if (ambiente !== '1' && ambiente !== '2') {
-      throw new BadRequestException('INVALID_AMBIENTE: El ambiente debe ser "1" (Pruebas) o "2" (Producción).');
+      throw new BadRequestException(
+        'INVALID_AMBIENTE: El ambiente debe ser "1" (Pruebas) o "2" (Producción).',
+      );
     }
 
     const estab = params.estab.trim().padStart(3, '0');
@@ -104,4 +108,3 @@ export class AccessKeyService {
     );
   }
 }
-

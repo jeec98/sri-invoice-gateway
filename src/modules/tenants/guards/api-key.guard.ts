@@ -1,9 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 
@@ -43,4 +38,3 @@ export class ApiKeyGuard implements CanActivate {
     return true;
   }
 }
-

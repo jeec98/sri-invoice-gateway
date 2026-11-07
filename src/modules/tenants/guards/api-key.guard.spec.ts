@@ -63,4 +63,3 @@ describe('ApiKeyGuard', () => {
     expect(request.tenant).toEqual(mockTenant);
   });
 });
-

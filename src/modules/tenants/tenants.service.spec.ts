@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Tenant } from '@prisma/client';
 import * as fs from 'node:fs/promises';
 import { TenantsService } from './tenants.service';
@@ -158,4 +154,3 @@ describe('TenantsService', () => {
     );
   });
 });
-

@@ -73,9 +73,6 @@ describe('P12ParserService', () => {
 
     const p12Buffer = createTestP12Buffer(password, pastStart, pastEnd);
 
-    expect(() => service.extractAndValidate(p12Buffer, password)).toThrow(
-      BadRequestException,
-    );
+    expect(() => service.extractAndValidate(p12Buffer, password)).toThrow(BadRequestException);
   });
 });
-

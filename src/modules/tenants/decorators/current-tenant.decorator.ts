@@ -7,4 +7,3 @@ export const CurrentTenant = createParamDecorator(
     return request.tenant;
   },
 );
-

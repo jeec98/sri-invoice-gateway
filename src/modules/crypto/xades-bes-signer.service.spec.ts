@@ -93,4 +93,3 @@ describe('XadesBesSignerService', () => {
     expect(String(sigValueNodes[0]).trim().length).toBeGreaterThan(64);
   });
 });
-

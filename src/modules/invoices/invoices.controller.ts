@@ -33,10 +33,7 @@ export class InvoicesController {
     status: 202,
     description: 'Factura encolada exitosamente en BullMQ',
   })
-  async createInvoice(
-    @CurrentTenant() tenant: Tenant,
-    @Body() dto: CreateInvoiceDto,
-  ) {
+  async createInvoice(@CurrentTenant() tenant: Tenant, @Body() dto: CreateInvoiceDto) {
     return this.invoicesService.enqueueInvoice(tenant, dto);
   }
 
@@ -57,4 +54,3 @@ export class InvoicesController {
     return this.invoicesService.getInvoiceByClaveAcceso(tenant, claveAcceso);
   }
 }
-

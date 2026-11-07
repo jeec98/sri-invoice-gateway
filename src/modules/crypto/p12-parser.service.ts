@@ -49,8 +49,7 @@ export class P12ParserService {
     }
 
     // Extract certificate bags
-    const certBags =
-      p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
     const validCertBags = certBags.filter((b) => b && b.cert);
 
     if (validCertBags.length === 0) {
@@ -146,10 +145,7 @@ export class P12ParserService {
       .reverse()
       .map((attr) => {
         const shortName =
-          attr.shortName ||
-          this.mapOidToShortName(attr.type || '') ||
-          attr.name ||
-          'OID';
+          attr.shortName || this.mapOidToShortName(attr.type || '') || attr.name || 'OID';
         return `${shortName}=${attr.value}`;
       })
       .join(',');
@@ -168,4 +164,3 @@ export class P12ParserService {
     return map[oid];
   }
 }
-

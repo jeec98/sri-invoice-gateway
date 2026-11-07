@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Tenant } from '@prisma/client';
 import { InvoicesService } from './invoices.service';
 import { AccessKeyService } from './services/access-key.service';
@@ -90,11 +86,7 @@ describe('InvoicesService', () => {
     queueMock = {
       add: vi.fn(),
     };
-    service = new InvoicesService(
-      prismaMock as never,
-      new AccessKeyService(),
-      queueMock as never,
-    );
+    service = new InvoicesService(prismaMock as never, new AccessKeyService(), queueMock as never);
   });
 
   it('should throw ForbiddenException (RUC_MISMATCH) when dto.ruc differs from tenant.ruc', async () => {
@@ -110,9 +102,9 @@ describe('InvoicesService', () => {
       p12FilePath: null,
     };
 
-    await expect(
-      service.enqueueInvoice(unconfiguredTenant, validDto),
-    ).rejects.toThrow(BadRequestException);
+    await expect(service.enqueueInvoice(unconfiguredTenant, validDto)).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('should throw ConflictException (DUPLICATE_REFERENCE_ID) on duplicate referenceId for same tenant', async () => {
@@ -121,9 +113,7 @@ describe('InvoicesService', () => {
       claveAcceso: '0711202601179001167400110010010000001231234567815',
     });
 
-    await expect(service.enqueueInvoice(mockTenant, validDto)).rejects.toThrow(
-      ConflictException,
-    );
+    await expect(service.enqueueInvoice(mockTenant, validDto)).rejects.toThrow(ConflictException);
   });
 
   it('should generate 49-digit Clave de Acceso, persist QUEUED job, and enqueue in BullMQ', async () => {
@@ -142,4 +132,3 @@ describe('InvoicesService', () => {
     expect(queueMock.add).toHaveBeenCalledTimes(1);
   });
 });
-

@@ -1,0 +1,113 @@
+name: CI — Lint, Unit & E2E Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-unit:
+    name: Lint, Typecheck & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm run prisma:generate
+
+      - name: Run TypeScript Typecheck & Prettier Lint Check
+        run: pnpm run lint
+
+      - name: Run Unit Test Suite (Vitest)
+        run: pnpm test
+
+      - name: Build Production Bundle (NestJS)
+        run: pnpm run build
+
+  e2e-tests:
+    name: E2E Tests (PostgreSQL + Redis + BullMQ + XAdES-BES)
+    runs-on: ubuntu-latest
+    needs: lint-and-unit
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sri_user
+          POSTGRES_PASSWORD: sri_password
+          POSTGRES_DB: sri_gateway_db
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd="pg_isready -U sri_user -d sri_gateway_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=5
+
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      DATABASE_URL: postgresql://sri_user:sri_password@localhost:5435/sri_gateway_db?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      MASTER_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      WEBHOOK_SIGNING_SECRET: whsec_ci_e2e_test_secret_key
+      CERTIFICATES_STORAGE_DIR: ./storage/certificates
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync Prisma Schema with PostgreSQL
+        run: pnpm exec prisma db push
+
+      - name: Seed Initial Tenant
+        run: pnpm run prisma:seed
+
+      - name: Run End-to-End (E2E) Test Suite
+        run: pnpm run test:e2e
+

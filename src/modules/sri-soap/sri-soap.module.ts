@@ -6,4 +6,3 @@ import { SriSoapClientService } from './sri-soap-client.service';
   exports: [SriSoapClientService],
 })
 export class SriSoapModule {}
-

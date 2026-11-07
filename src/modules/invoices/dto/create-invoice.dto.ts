@@ -104,7 +104,8 @@ export class InvoiceDetailDto {
 
 export class InvoicePagoDto {
   @ApiProperty({
-    description: 'Código forma de pago SRI (01 = Sin utilización del sistema financiero, 20 = Otros con utilización del sistema financiero)',
+    description:
+      'Código forma de pago SRI (01 = Sin utilización del sistema financiero, 20 = Otros con utilización del sistema financiero)',
     example: '20',
   })
   @IsString()
@@ -229,7 +230,8 @@ export class CreateInvoiceDto {
   obligadoContabilidad?: 'SI' | 'NO';
 
   @ApiProperty({
-    description: '04 = RUC, 05 = Cédula, 06 = Pasaporte, 07 = Consumidor Final, 08 = Identificación Exterior',
+    description:
+      '04 = RUC, 05 = Cédula, 06 = Pasaporte, 07 = Consumidor Final, 08 = Identificación Exterior',
     example: '04',
   })
   @IsString()
@@ -298,4 +300,3 @@ export class CreateInvoiceDto {
   @Type(() => InfoAdicionalFieldDto)
   infoAdicional?: InfoAdicionalFieldDto[];
 }
-

@@ -102,11 +102,8 @@ describe('SriSoapClientService', () => {
 
     const parsedAuth = service.parseAutorizacionResponse(autorizadoSoapXml);
     expect(parsedAuth.estado).toBe('AUTORIZADO');
-    expect(parsedAuth.numeroAutorizacion).toBe(
-      '0711202601179001167400110010010000001231234567815',
-    );
+    expect(parsedAuth.numeroAutorizacion).toBe('0711202601179001167400110010010000001231234567815');
     expect(parsedAuth.authorizedXml).toContain('<autorizacion>');
     expect(parsedAuth.authorizedXml).toContain('<estado>AUTORIZADO</estado>');
   });
 });
-

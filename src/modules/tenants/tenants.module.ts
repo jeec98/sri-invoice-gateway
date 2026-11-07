@@ -11,4 +11,3 @@ import { ApiKeyGuard } from './guards/api-key.guard';
   exports: [TenantsService, ApiKeyGuard],
 })
 export class TenantsModule {}
-

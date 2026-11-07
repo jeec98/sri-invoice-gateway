@@ -35,4 +35,3 @@ import { QueueModule } from './modules/queue/queue.module';
   ],
 })
 export class AppModule {}
-

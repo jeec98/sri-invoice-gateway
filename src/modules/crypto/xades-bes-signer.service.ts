@@ -153,16 +153,12 @@ export class XadesBesSignerService {
       const serializedRoot = new XMLSerializer().serializeToString(rootElement);
       const fallbackIdx = serializedRoot.lastIndexOf(`</${rootElement.tagName}>`);
       return (
-        serializedRoot.slice(0, fallbackIdx) +
-        dsSignatureBlock +
-        serializedRoot.slice(fallbackIdx)
+        serializedRoot.slice(0, fallbackIdx) + dsSignatureBlock + serializedRoot.slice(fallbackIdx)
       );
     }
 
     return (
-      unsignedXml.slice(0, closingTagIndex) +
-      dsSignatureBlock +
-      unsignedXml.slice(closingTagIndex)
+      unsignedXml.slice(0, closingTagIndex) + dsSignatureBlock + unsignedXml.slice(closingTagIndex)
     );
   }
 
@@ -213,4 +209,3 @@ export class XadesBesSignerService {
       .replace(/'/g, '&apos;');
   }
 }
-

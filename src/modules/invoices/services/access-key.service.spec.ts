@@ -68,4 +68,3 @@ describe('AccessKeyService', () => {
     expect(key.slice(39, 47)).toBe('00000099');
   });
 });
-

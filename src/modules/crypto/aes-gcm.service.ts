@@ -20,8 +20,7 @@ export class AesGcmService {
       );
     }
 
-    const rawKey =
-      envKey || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const rawKey = envKey || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
     if (rawKey.length === 64 && /^[0-9a-fA-F]+$/.test(rawKey)) {
       return Buffer.from(rawKey, 'hex');
@@ -62,4 +61,3 @@ export class AesGcmService {
     return decrypted.toString('utf8');
   }
 }
-

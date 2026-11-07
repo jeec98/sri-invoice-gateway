@@ -21,4 +21,3 @@ import { InvoiceQueueConsumer } from './invoice-queue.consumer';
   exports: [InvoiceQueueConsumer],
 })
 export class QueueModule {}
-

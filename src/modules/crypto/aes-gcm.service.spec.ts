@@ -37,9 +37,6 @@ describe('AesGcmService', () => {
     const encrypted = service.encrypt(plainPassword);
 
     const tamperedTag = Buffer.alloc(16, 0).toString('base64');
-    expect(() =>
-      service.decrypt(encrypted.ciphertext, encrypted.iv, tamperedTag),
-    ).toThrow();
+    expect(() => service.decrypt(encrypted.ciphertext, encrypted.iv, tamperedTag)).toThrow();
   });
 });
-

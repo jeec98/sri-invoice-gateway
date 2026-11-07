@@ -155,8 +155,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
         return;
       }
 
-      const finalStatus =
-        authResult.estado === 'EN PROCESO' ? 'EN_PROCESO' : 'NO_AUTORIZADO';
+      const finalStatus = authResult.estado === 'EN PROCESO' ? 'EN_PROCESO' : 'NO_AUTORIZADO';
 
       await this.finalizeAndNotify({
         invoiceJobId,
@@ -267,4 +266,3 @@ export class InvoiceQueueConsumer extends WorkerHost {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
-

@@ -70,7 +70,9 @@ export class XmlBuilderService {
         `    <direccionComprador>${this.escapeXml(dto.direccionComprador)}</direccionComprador>`,
       );
     }
-    lines.push(`    <totalSinImpuestos>${this.formatAmount(dto.totalSinImpuestos)}</totalSinImpuestos>`);
+    lines.push(
+      `    <totalSinImpuestos>${this.formatAmount(dto.totalSinImpuestos)}</totalSinImpuestos>`,
+    );
     lines.push(`    <totalDescuento>${this.formatAmount(dto.totalDescuento)}</totalDescuento>`);
 
     // <totalConImpuestos>
@@ -116,9 +118,7 @@ export class XmlBuilderService {
         `      <codigoPrincipal>${this.escapeXml(item.codigoPrincipal)}</codigoPrincipal>`,
       );
       if (item.codigoAuxiliar) {
-        lines.push(
-          `      <codigoAuxiliar>${this.escapeXml(item.codigoAuxiliar)}</codigoAuxiliar>`,
-        );
+        lines.push(`      <codigoAuxiliar>${this.escapeXml(item.codigoAuxiliar)}</codigoAuxiliar>`);
       }
       lines.push(`      <descripcion>${this.escapeXml(item.descripcion)}</descripcion>`);
       lines.push(`      <cantidad>${this.formatQuantity(item.cantidad)}</cantidad>`);
@@ -210,10 +210,7 @@ export class XmlBuilderService {
     if (Number(fixed2) === Number(num)) {
       return fixed2;
     }
-    return Number(num)
-      .toFixed(6)
-      .replace(/0+$/, '')
-      .replace(/\.$/, '.00');
+    return Number(num).toFixed(6).replace(/0+$/, '').replace(/\.$/, '.00');
   }
 
   private escapeXml(value: string): string {
@@ -225,4 +222,3 @@ export class XmlBuilderService {
       .replace(/'/g, '&apos;');
   }
 }
-

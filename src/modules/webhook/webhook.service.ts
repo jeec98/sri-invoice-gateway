@@ -42,10 +42,7 @@ export class WebhookService {
 
     const bodyString = JSON.stringify(payload);
     const secret = envSecret || 'whsec_sri_gateway_default_secret_key';
-    const signature = crypto
-      .createHmac('sha256', secret)
-      .update(bodyString)
-      .digest('hex');
+    const signature = crypto.createHmac('sha256', secret).update(bodyString).digest('hex');
 
     const timeoutMs = Number(process.env.WEBHOOK_TIMEOUT_MS || 10000);
 
@@ -75,7 +72,7 @@ export class WebhookService {
         error !== null &&
         'response' in error &&
         typeof (error as { response?: { status?: unknown } }).response?.status === 'number'
-          ? ((error as { response: { status: number } }).response.status)
+          ? (error as { response: { status: number } }).response.status
           : undefined;
 
       this.logger.error(
@@ -121,4 +118,3 @@ export class WebhookService {
     }
   }
 }
-

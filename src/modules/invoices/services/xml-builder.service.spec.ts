@@ -94,7 +94,9 @@ describe('XmlBuilderService', () => {
     expect(xml).toContain('<razonSocial>TECNOLOGIA &amp; SOLUCIONES S.A.</razonSocial>');
     expect(xml).toContain('<codigoPorcentaje>4</codigoPorcentaje>');
     expect(xml).toContain('<tarifa>15.00</tarifa>');
-    expect(xml).toContain('<campoAdicional nombre="Email">cliente@corporativo.com</campoAdicional>');
+    expect(xml).toContain(
+      '<campoAdicional nombre="Email">cliente@corporativo.com</campoAdicional>',
+    );
 
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     const totalImpuestos = xpath.select(
@@ -107,4 +109,3 @@ describe('XmlBuilderService', () => {
     expect(detalles.length).toBe(2);
   });
 });
-

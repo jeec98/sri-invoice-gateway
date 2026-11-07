@@ -154,14 +154,12 @@ export class SriSoapClientService {
     }
 
     const firstAuth = autorizacionNodes[0];
-    const estado =
-      this.extractNodeText(firstAuth, './*[local-name()="estado"]') || 'EN PROCESO';
+    const estado = this.extractNodeText(firstAuth, './*[local-name()="estado"]') || 'EN PROCESO';
     const numeroAutorizacion =
       this.extractNodeText(firstAuth, './*[local-name()="numeroAutorizacion"]') || undefined;
     const fechaAutorizacion =
       this.extractNodeText(firstAuth, './*[local-name()="fechaAutorizacion"]') || undefined;
-    const ambiente =
-      this.extractNodeText(firstAuth, './*[local-name()="ambiente"]') || undefined;
+    const ambiente = this.extractNodeText(firstAuth, './*[local-name()="ambiente"]') || undefined;
     const comprobanteXml =
       this.extractNodeText(firstAuth, './*[local-name()="comprobante"]') || undefined;
     const mensajes = this.extractMessages(firstAuth);
@@ -254,4 +252,3 @@ export class SriSoapClientService {
     return text ? text.trim() : null;
   }
 }
-

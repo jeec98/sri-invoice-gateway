@@ -56,12 +56,6 @@ export class TenantsController {
       );
     }
 
-    return this.tenantsService.uploadCertificate(
-      tenant,
-      dto,
-      file.buffer,
-      file.originalname,
-    );
+    return this.tenantsService.uploadCertificate(tenant, dto, file.buffer, file.originalname);
   }
 }
-
