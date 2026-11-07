@@ -28,8 +28,8 @@ export class XadesBesSignerService {
       );
     }
 
-    // Generate deterministic or random numeric identifiers for XAdES-BES nodes
-    const rnd = () => Math.floor(100000 + Math.random() * 899999);
+    // Generate cryptographically random numeric identifiers for XAdES-BES nodes
+    const rnd = () => crypto.randomInt(100000, 1000000);
     const signatureId = `Signature${rnd()}`;
     const signatureValueId = `SignatureValue${rnd()}`;
     const signedPropertiesId = `Signature${rnd()}-SignedProperties${rnd()}`;

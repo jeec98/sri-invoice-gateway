@@ -213,6 +213,19 @@ export class InvoiceQueueConsumer extends WorkerHost {
     const validFechaAuth =
       parsedFechaAuth && !isNaN(parsedFechaAuth.getTime()) ? parsedFechaAuth : undefined;
 
+    // 1. Persist final SRI outcome before dispatching external webhook to prevent race conditions or data loss
+    await this.prisma.invoiceJob.update({
+      where: { id: params.invoiceJobId },
+      data: {
+        status: params.status,
+        numeroAutorizacion: params.numeroAutorizacion,
+        fechaAutorizacion: validFechaAuth,
+        authorizedXml: params.authorizedXml,
+        sriMessages: params.sriMessages as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    // 2. Dispatch webhook notification to tenant SaaS
     const webhookResult = await this.webhookService.dispatch(params.webhookUrl, {
       event: 'sri.invoice.completed',
       jobId: params.invoiceJobId,
@@ -227,14 +240,10 @@ export class InvoiceQueueConsumer extends WorkerHost {
       timestamp: new Date().toISOString(),
     });
 
+    // 3. Record webhook delivery outcome
     await this.prisma.invoiceJob.update({
       where: { id: params.invoiceJobId },
       data: {
-        status: params.status,
-        numeroAutorizacion: params.numeroAutorizacion,
-        fechaAutorizacion: validFechaAuth,
-        authorizedXml: params.authorizedXml,
-        sriMessages: params.sriMessages as unknown as Prisma.InputJsonValue,
         webhookDelivered: webhookResult.delivered,
         webhookResponseStatus: webhookResult.statusCode,
       },

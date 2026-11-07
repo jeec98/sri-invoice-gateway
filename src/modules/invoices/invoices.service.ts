@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -38,7 +39,21 @@ export class InvoicesService {
       );
     }
 
-    // 1. Immediately generate the 49-digit Clave de Acceso (Modulo 11)
+    // 1. Guard against duplicate referenceId for the same tenant (Idempotency)
+    const existingJob = await this.prisma.invoiceJob.findFirst({
+      where: {
+        tenantId: tenant.id,
+        referenceId: dto.referenceId,
+      },
+    });
+
+    if (existingJob) {
+      throw new ConflictException(
+        `DUPLICATE_REFERENCE_ID: Ya existe un comprobante registrado con referenceId "${dto.referenceId}" (claveAcceso: ${existingJob.claveAcceso}).`,
+      );
+    }
+
+    // 2. Immediately generate the 49-digit Clave de Acceso (Modulo 11)
     const claveAcceso = this.accessKeyService.generateAccessKey({
       fechaEmision: dto.fechaEmision,
       codDoc: '01',

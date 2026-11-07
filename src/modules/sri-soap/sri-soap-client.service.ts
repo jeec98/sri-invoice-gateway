@@ -122,7 +122,7 @@ export class SriSoapClientService {
       '  <soapenv:Header/>',
       '  <soapenv:Body>',
       '    <ec:autorizacionComprobante>',
-      `      <claveAccesoComprobante>${claveAcceso}</claveAccesoComprobante>`,
+      `      <claveAccesoComprobante>${this.escapeXml(claveAcceso)}</claveAccesoComprobante>`,
       '    </ec:autorizacionComprobante>',
       '  </soapenv:Body>',
       '</soapenv:Envelope>',
@@ -196,17 +196,27 @@ export class SriSoapClientService {
     ambiente: string;
     comprobanteXml: string;
   }): string {
+    const safeCdata = params.comprobanteXml.replace(/]]>/g, ']]]]><![CDATA[>');
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<autorizacion>',
-      `  <estado>${params.estado}</estado>`,
-      `  <numeroAutorizacion>${params.numeroAutorizacion}</numeroAutorizacion>`,
-      `  <fechaAutorizacion>${params.fechaAutorizacion}</fechaAutorizacion>`,
-      `  <ambiente>${params.ambiente}</ambiente>`,
-      `  <comprobante><![CDATA[${params.comprobanteXml}]]></comprobante>`,
+      `  <estado>${this.escapeXml(params.estado)}</estado>`,
+      `  <numeroAutorizacion>${this.escapeXml(params.numeroAutorizacion)}</numeroAutorizacion>`,
+      `  <fechaAutorizacion>${this.escapeXml(params.fechaAutorizacion)}</fechaAutorizacion>`,
+      `  <ambiente>${this.escapeXml(params.ambiente)}</ambiente>`,
+      `  <comprobante><![CDATA[${safeCdata}]]></comprobante>`,
       '  <mensajes/>',
       '</autorizacion>',
     ].join('\n');
+  }
+
+  private escapeXml(value: string): string {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
   private extractMessages(contextNode: Node): SriMessage[] {

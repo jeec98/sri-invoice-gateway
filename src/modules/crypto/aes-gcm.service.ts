@@ -13,9 +13,15 @@ export class AesGcmService {
   private readonly ivLength = 12; // 96-bit standard IV for AES-GCM
 
   private getKey(): Buffer {
+    const envKey = process.env.MASTER_ENCRYPTION_KEY;
+    if (!envKey && process.env.NODE_ENV === 'production') {
+      throw new InternalServerErrorException(
+        'MISSING_MASTER_KEY: MASTER_ENCRYPTION_KEY environment variable is required in production.',
+      );
+    }
+
     const rawKey =
-      process.env.MASTER_ENCRYPTION_KEY ||
-      '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+      envKey || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
     if (rawKey.length === 64 && /^[0-9a-fA-F]+$/.test(rawKey)) {
       return Buffer.from(rawKey, 'hex');

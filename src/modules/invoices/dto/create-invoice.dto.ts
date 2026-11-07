@@ -159,7 +159,11 @@ export class CreateInvoiceDto {
     description: 'URL del Webhook en el SaaS donde se notificará el resultado final',
     example: 'https://mi-saas.com/api/webhooks/sri',
   })
-  @IsUrl({ require_tld: false })
+  @IsUrl({
+    protocols: ['http', 'https'],
+    require_protocol: true,
+    require_tld: false,
+  })
   @IsNotEmpty()
   webhookUrl: string;
 

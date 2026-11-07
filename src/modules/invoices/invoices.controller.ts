@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -48,6 +49,11 @@ export class InvoicesController {
     @CurrentTenant() tenant: Tenant,
     @Param('claveAcceso') claveAcceso: string,
   ) {
+    if (!/^\d{49}$/.test(claveAcceso)) {
+      throw new BadRequestException(
+        'INVALID_CLAVE_ACCESO: La clave de acceso debe contener exactamente 49 dígitos numéricos.',
+      );
+    }
     return this.invoicesService.getInvoiceByClaveAcceso(tenant, claveAcceso);
   }
 }
