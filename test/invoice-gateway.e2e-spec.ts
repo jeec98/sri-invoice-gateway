@@ -327,7 +327,7 @@ describe('SRI Invoice Gateway (E2E)', () => {
     });
     expect(dupInvRes.status).toBe(409);
 
-    // 3d. Poll GET /v1/invoices/:claveAcceso until BullMQ worker completes
+    // 3d. Poll GET /v1/invoices/:claveAcceso until BullMQ worker completes authorization and webhook delivery
     let finalBody: Record<string, unknown> = {};
     for (let i = 0; i < 30; i++) {
       const getRes = await fetch(`${baseUrl}/invoices/${claveAcceso}`, {
@@ -336,7 +336,7 @@ describe('SRI Invoice Gateway (E2E)', () => {
       expect(getRes.status).toBe(200);
 
       finalBody = (await getRes.json()) as Record<string, unknown>;
-      if (finalBody.status === 'AUTORIZADO') {
+      if (finalBody.status === 'AUTORIZADO' && finalBody.webhookResponseStatus !== null) {
         break;
       }
       await new Promise((r) => setTimeout(r, 150));
