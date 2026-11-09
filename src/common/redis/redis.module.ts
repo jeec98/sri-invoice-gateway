@@ -9,6 +9,15 @@ export * from './redis.constants';
 const redisClientProvider: Provider = {
   provide: REDIS_CLIENT,
   useFactory: (configService: ConfigService): Redis => {
+    const redisUrl = configService.get<string>('REDIS_URL');
+    if (redisUrl) {
+      return new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        lazyConnect: true,
+      });
+    }
+
     const host = configService.get<string>('REDIS_HOST', 'localhost');
     const port = Number(configService.get<number>('REDIS_PORT', 6379));
     const password = configService.get<string>('REDIS_PASSWORD') || undefined;

@@ -20,14 +20,30 @@ import { QueueModule } from './modules/queue/queue.module';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST', 'localhost'),
-          port: configService.get<number>('REDIS_PORT', 6379),
-          password: configService.get<string>('REDIS_PASSWORD') || undefined,
-          db: Number(configService.get<number>('REDIS_DB', 0)),
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL');
+        if (redisUrl) {
+          const parsed = new URL(redisUrl);
+          return {
+            connection: {
+              host: parsed.hostname,
+              port: Number(parsed.port) || 6379,
+              username: parsed.username || undefined,
+              password: parsed.password || undefined,
+              db: parsed.pathname && parsed.pathname !== '/' ? Number(parsed.pathname.replace('/', '')) || 0 : 0,
+              tls: parsed.protocol === 'rediss:' ? {} : undefined,
+            },
+          };
+        }
+        return {
+          connection: {
+            host: configService.get<string>('REDIS_HOST', 'localhost'),
+            port: configService.get<number>('REDIS_PORT', 6379),
+            password: configService.get<string>('REDIS_PASSWORD') || undefined,
+            db: Number(configService.get<number>('REDIS_DB', 0)),
+          },
+        };
+      },
     }),
     PrismaModule,
     CryptoModule,
@@ -39,4 +55,4 @@ import { QueueModule } from './modules/queue/queue.module';
     QueueModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
