@@ -11,8 +11,9 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit && prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "db:up": "docker compose up -d postgres redis",
     "start": "nest start",
-    "start:dev": "nest start --watch",
+    "start:dev": "docker compose up -d postgres redis && nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "prisma:generate": "prisma generate",
@@ -61,4 +62,3 @@
     "vitest": "^3.0.0"
   }
 }
-
