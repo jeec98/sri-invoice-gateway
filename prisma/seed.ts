@@ -16,13 +16,13 @@ async function main() {
   const apiClient = await prisma.apiClient.upsert({
     where: { apiKeyHash },
     update: {
-      name: 'Rhinolabs Development SaaS',
+      name: 'Development Platform SaaS',
       plan: 'STANDARD',
       rateLimitRps: 100,
       status: 'ACTIVE',
     },
     create: {
-      name: 'Rhinolabs Development SaaS',
+      name: 'Development Platform SaaS',
       apiKeyHash,
       plan: 'STANDARD',
       rateLimitRps: 100,
@@ -39,12 +39,12 @@ async function main() {
       },
     },
     update: {
-      businessName: 'Rhinolabs Tech S.A.',
+      businessName: 'Empresa Demo S.A.',
       status: 'ACTIVE',
     },
     create: {
       apiClientId: apiClient.id,
-      businessName: 'Rhinolabs Tech S.A.',
+      businessName: 'Empresa Demo S.A.',
       ruc: '1790011674001',
       status: 'ACTIVE',
     },
@@ -69,7 +69,7 @@ async function main() {
         validFrom,
         validTo,
         certSubject:
-          'CN=Rhinolabs Tech S.A.,OID.2.5.4.97=VATS-1790011674001,C=EC',
+          'CN=Empresa Demo S.A.,OID.2.5.4.97=VATS-1790011674001,C=EC',
         certIssuer:
           'CN=AUTORIDAD DE CERTIFICACION SECURITY DATA,OU=ENTIDAD DE CERTIFICACION,O=SECURITY DATA S.A.,C=EC',
         serialNumber: '1234567890abcdef',

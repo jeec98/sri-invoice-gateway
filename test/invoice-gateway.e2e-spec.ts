@@ -32,7 +32,7 @@ function createValidTestP12Buffer(
   const subjectAttrs: forge.pki.CertificateField[] = [
     { name: 'commonName', value: `EMPRESA PRUEBA RUC ${ruc}` },
     { type: '2.5.4.5', shortName: 'SERIALNUMBER', value: `RUC-${ruc}` },
-    { name: 'organizationName', value: 'RHINOLABS MULTI-SAAS E2E' },
+    { name: 'organizationName', value: 'DEMO MULTI-SAAS E2E' },
     { name: 'countryName', value: 'EC' },
   ];
   const issuerAttrs: forge.pki.CertificateField[] = [

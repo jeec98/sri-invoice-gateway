@@ -82,10 +82,10 @@ export default withMermaid(
         },
       },
       socialLinks: [
-        { icon: 'github', link: 'https://github.com/rhinolabs/sri-invoice-gateway' },
+        { icon: 'github', link: 'https://github.com/jeec98/sri-invoice-gateway' },
       ],
       footer: {
-        message: 'Apache-2.0 License • Rhinolabs Architecture Team',
+        message: 'Apache-2.0 License',
         copyright: 'Documentación Oficial SRI Facturación Electrónica',
       },
     },

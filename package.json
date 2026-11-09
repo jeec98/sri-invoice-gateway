@@ -2,7 +2,7 @@
   "name": "sri-invoice-gateway",
   "version": "1.0.0",
   "description": "Asynchronous Multi-Tenant Microservice for Ecuadorian SRI Electronic Invoicing (XAdES-BES + SOAP 1.1 + BullMQ)",
-  "author": "Rhinolabs Architecture Team",
+  "author": "Architecture Team",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
