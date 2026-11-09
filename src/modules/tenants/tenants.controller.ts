@@ -43,7 +43,7 @@ export class TenantsController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary:
-      'Subir y validar archivo .p12/.pfx para el Tenant autenticado, cifrando la contraseña con AES-256-GCM',
+      'Subir y validar certificado .p12/.pfx (CA acreditada, RUC, vigencia, integridad y revocación), cifrando binario y contraseña con AES-256-GCM',
   })
   async uploadCertificate(
     @CurrentTenant() tenant: Tenant,

@@ -54,6 +54,7 @@ describe('InvoiceQueueConsumer', () => {
 
     const aesGcmMock = {
       decrypt: vi.fn().mockReturnValue('cert-password'),
+      decryptBuffer: vi.fn().mockImplementation((buf: Buffer) => buf),
     };
     const xmlBuilderMock = {
       buildFacturaXml: vi.fn().mockReturnValue('<factura id="comprobante"/>'),

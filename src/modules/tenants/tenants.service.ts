@@ -80,23 +80,30 @@ export class TenantsService {
       );
     }
 
-    // 1. Validate that the .p12 opens with the password and is not expired
-    const parsedCert = this.p12Parser.extractAndValidate(fileBuffer, dto.password);
+    // 1. Validate the .p12 certificate against all 6 SRI security & identity checks:
+    //    (Contraseña, Integridad par clave-certificado, Vigencia, Entidad Certificadora, Identidad RUC, Revocación)
+    const parsedCert = this.p12Parser.extractAndValidate(fileBuffer, dto.password, {
+      expectedRuc: tenant.ruc,
+    });
+    await this.p12Parser.verifyRevocationStatus(parsedCert.certificate, {
+      expectedRuc: tenant.ruc,
+    });
 
-    // 2. Encrypt the certificate password using AES-256-GCM (ciphertext, iv, authTag)
+    // 2. Encrypt BOTH the certificate password AND the .p12 binary using AES-256-GCM (zero plaintext at rest)
     const encryptedPassword = this.aesGcm.encrypt(dto.password);
+    const encryptedP12Buffer = this.aesGcm.encryptBuffer(fileBuffer);
 
-    // 3. Persist binary safely on protected local disk (0600 permissions) and in database Bytes column
+    // 3. Persist AES-256-GCM encrypted binary on protected local disk (0600 permissions) and in database Bytes column
     const storageDir =
       process.env.CERTIFICATES_STORAGE_DIR || path.resolve(process.cwd(), 'storage/certificates');
     await fs.mkdir(storageDir, { recursive: true });
-    const filePath = path.join(storageDir, `${tenant.ruc}_${tenant.id}.p12`);
-    await fs.writeFile(filePath, fileBuffer, { mode: 0o600 });
+    const filePath = path.join(storageDir, `${tenant.ruc}_${tenant.id}.p12.enc`);
+    await fs.writeFile(filePath, encryptedP12Buffer, { mode: 0o600 });
 
     const updated = await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
-        p12Binary: new Uint8Array(fileBuffer),
+        p12Binary: new Uint8Array(encryptedP12Buffer),
         p12FilePath: filePath,
         passwordCiphertext: encryptedPassword.ciphertext,
         passwordIv: encryptedPassword.iv,
@@ -117,6 +124,7 @@ export class TenantsService {
         issuer: updated.certIssuer,
         validFrom: updated.certValidFrom,
         validTo: updated.certValidTo,
+        rucVerified: true,
         encryptionAlgorithm: 'AES-256-GCM',
       },
     };

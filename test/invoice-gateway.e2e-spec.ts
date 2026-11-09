@@ -16,7 +16,11 @@ const { PrismaService } = requireCjs('../dist/prisma/prisma.service.js');
 const { SriSoapClientService } = requireCjs('../dist/modules/sri-soap/sri-soap-client.service.js');
 const { InvoiceQueueConsumer } = requireCjs('../dist/modules/queue/invoice-queue.consumer.js');
 
-function createValidTestP12Buffer(password: string): Buffer {
+function createValidTestP12Buffer(
+  password: string,
+  ruc = '1799988877001',
+  issuerOrg = 'SECURITY DATA S.A.',
+): Buffer {
   const keys = forge.pki.rsa.generateKeyPair(2048);
   const cert = forge.pki.createCertificate();
   cert.publicKey = keys.publicKey;
@@ -25,13 +29,19 @@ function createValidTestP12Buffer(password: string): Buffer {
   cert.validity.notBefore = new Date(now.getTime() - 86400 * 1000);
   cert.validity.notAfter = new Date(now.getTime() + 365 * 86400 * 1000);
 
-  const attrs = [
+  const subjectAttrs: forge.pki.CertificateField[] = [
     { name: 'commonName', value: 'E2E TENANT ECUADOR S.A.' },
+    { type: '2.5.4.5', shortName: 'SERIALNUMBER', value: `RUC-${ruc}` },
     { name: 'organizationName', value: 'RHINOLABS E2E' },
     { name: 'countryName', value: 'EC' },
   ];
-  cert.setSubject(attrs);
-  cert.setIssuer(attrs);
+  const issuerAttrs: forge.pki.CertificateField[] = [
+    { name: 'commonName', value: `AUTORIDAD DE CERTIFICACION ${issuerOrg}` },
+    { name: 'organizationName', value: issuerOrg },
+    { name: 'countryName', value: 'EC' },
+  ];
+  cert.setSubject(subjectAttrs);
+  cert.setIssuer(issuerAttrs);
   cert.sign(keys.privateKey, forge.md.sha1.create());
 
   const asn1 = forge.pkcs12.toPkcs12Asn1(keys.privateKey, [cert], password, {
@@ -57,6 +67,7 @@ describe('SRI Invoice Gateway (E2E)', () => {
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
+    process.env.REDIS_DB = '1';
     process.env.WEBHOOK_SIGNING_SECRET = 'whsec_e2e_test_signing_secret';
 
     // Start local HTTP receiver to verify real outbound Webhook delivery & HMAC-SHA256
@@ -178,7 +189,45 @@ describe('SRI Invoice Gateway (E2E)', () => {
     });
     expect(badRes.status).toBe(400);
 
-    // Valid password -> 201 Created
+    // Unrecognized CA -> 400 Bad Request (UNRECOGNIZED_CA_ISSUER)
+    const unrecognizedCaP12 = createValidTestP12Buffer(p12Password, testRuc, 'UNKNOWN FAKE CA');
+    const badCaForm = new FormData();
+    badCaForm.append('ruc', testRuc);
+    badCaForm.append('password', p12Password);
+    badCaForm.append(
+      'file',
+      new Blob([new Uint8Array(unrecognizedCaP12)], { type: 'application/x-pkcs12' }),
+      'firma_bad_ca.p12',
+    );
+    const badCaRes = await fetch(`${baseUrl}/tenants/certificates`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tenantApiKey}` },
+      body: badCaForm,
+    });
+    expect(badCaRes.status).toBe(400);
+
+    // Certificate belonging to another RUC -> 400 Bad Request (CERTIFICATE_RUC_MISMATCH)
+    const otherRucP12 = createValidTestP12Buffer(
+      p12Password,
+      '0999999999001',
+      'SECURITY DATA S.A.',
+    );
+    const otherRucForm = new FormData();
+    otherRucForm.append('ruc', testRuc);
+    otherRucForm.append('password', p12Password);
+    otherRucForm.append(
+      'file',
+      new Blob([new Uint8Array(otherRucP12)], { type: 'application/x-pkcs12' }),
+      'firma_other_ruc.p12',
+    );
+    const otherRucRes = await fetch(`${baseUrl}/tenants/certificates`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tenantApiKey}` },
+      body: otherRucForm,
+    });
+    expect(otherRucRes.status).toBe(400);
+
+    // Valid password + Accredited CA + Matching RUC -> 201 Created
     const validForm = new FormData();
     validForm.append('ruc', testRuc);
     validForm.append('password', p12Password);
@@ -197,11 +246,19 @@ describe('SRI Invoice Gateway (E2E)', () => {
 
     const body = (await res.json()) as {
       success: boolean;
-      certificate: { encryptionAlgorithm: string; subject: string };
+      certificate: { encryptionAlgorithm: string; subject: string; rucVerified: boolean };
     };
     expect(body.success).toBe(true);
     expect(body.certificate.encryptionAlgorithm).toBe('AES-256-GCM');
+    expect(body.certificate.rucVerified).toBe(true);
     expect(body.certificate.subject).toContain('CN=E2E TENANT ECUADOR S.A.');
+
+    // Verify in PostgreSQL that both the .p12 binary and password are stored encrypted with AES-256-GCM
+    const storedTenant = await prisma.tenant.findUnique({ where: { ruc: testRuc } });
+    expect(storedTenant?.p12Binary).toBeDefined();
+    const storedBytes = Buffer.from(storedTenant!.p12Binary!);
+    expect(storedBytes.subarray(0, 4).toString('ascii')).toBe('AGCM');
+    expect(storedBytes.equals(p12Buffer)).toBe(false);
   });
 
   it('3. POST /v1/invoices -> BullMQ Worker -> XAdES-BES -> SOAP -> Webhook -> GET /v1/invoices/:claveAcceso', async () => {

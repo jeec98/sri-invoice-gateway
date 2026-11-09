@@ -1,5 +1,25 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import axios from 'axios';
 import * as forge from 'node-forge';
+
+export interface P12ValidationOptions {
+  /**
+   * 13-digit RUC of the issuing taxpayer (Tenant). When provided, the certificate's
+   * Subject attributes or X.509v3 extensions MUST match this RUC (or its 10-digit Cédula
+   * prefix for Ecuadorian natural person RUCs ending in 001).
+   */
+  expectedRuc?: string;
+  /**
+   * Whether to verify that the certificate was issued by an accredited Certification
+   * Authority (Entidad Certificadora) recognized by the SRI in Ecuador. Defaults to true
+   * unless ALLOW_UNRECOGNIZED_CA=true is set.
+   */
+  enforceAccreditedCa?: boolean;
+  /**
+   * Optional list of revoked certificate serial numbers (hex or decimal) to reject immediately.
+   */
+  revokedSerialNumbers?: string[];
+}
 
 export interface ParsedP12Material {
   privateKey: forge.pki.rsa.PrivateKey;
@@ -8,20 +28,60 @@ export interface ParsedP12Material {
   certSha1Base64: string;
   issuerName: string;
   subjectName: string;
+  serialNumberHex: string;
   serialNumberDec: string;
   modulusBase64: string;
   exponentBase64: string;
   validFrom: Date;
   validTo: Date;
+  crlUrls: string[];
 }
 
 @Injectable()
 export class P12ParserService {
-  extractAndValidate(p12Buffer: Buffer, password: string): ParsedP12Material {
+  private readonly logger = new Logger(P12ParserService.name);
+
+  /**
+   * Accredited Certification Authorities (Entidades de Certificación de Información)
+   * recognized by ARCOTEL and accepted by the Ecuadorian SRI for Electronic Invoicing.
+   */
+  private readonly recognizedCaPatterns: RegExp[] = [
+    /SECURITY\s*DATA/i,
+    /BANCO\s*CENTRAL\s*DEL\s*ECUADOR|\bECIBCE\b|\bBCE\b/i,
+    /UANATACA/i,
+    /\bANF\b|ANF\s*AC|AUTORIDAD\s*DE\s*CERTIFICACION\s*ECUADOR/i,
+    /CONSEJO\s*DE\s*LA\s*JUDICATURA|ICERT-EC/i,
+    /CORPNEWBEST|DATIL/i,
+    /ECLIPSOFT/i,
+    /LAZUS|ARGOSY|FIRMASEGURA|LETMI/i,
+  ];
+
+  /**
+   * Enterprise OIDs assigned by IANA to Ecuadorian Certification Authorities:
+   * - 1.3.6.1.4.1.37947: Banco Central del Ecuador (BCE)
+   * - 1.3.6.1.4.1.37746: Security Data S.A.
+   * - 1.3.6.1.4.1.37442: Consejo de la Judicatura (ICERT-EC)
+   * - 1.3.6.1.4.1.47286: Uanataca S.A.
+   * - 1.3.6.1.4.1.18332: ANF Autoridad de Certificación
+   */
+  private readonly recognizedEcuadorCaOidPrefixes = [
+    '1.3.6.1.4.1.37947',
+    '1.3.6.1.4.1.37746',
+    '1.3.6.1.4.1.37442',
+    '1.3.6.1.4.1.47286',
+    '1.3.6.1.4.1.18332',
+  ];
+
+  extractAndValidate(
+    p12Buffer: Buffer,
+    password: string,
+    options?: P12ValidationOptions,
+  ): ParsedP12Material {
     if (!p12Buffer || p12Buffer.length === 0) {
       throw new BadRequestException('CERTIFICATE_EMPTY: El archivo .p12 está vacío.');
     }
 
+    // 6. Contraseña: comprobar que permite acceder al archivo PKCS#12 (.p12 o .pfx)
     let p12: forge.pkcs12.Pkcs12Pfx;
     try {
       const derBytes = p12Buffer.toString('binary');
@@ -58,9 +118,10 @@ export class P12ParserService {
       );
     }
 
-    // Match private key with signing certificate (prefer the end-entity certificate that matches the key's modulus)
-    let selectedKey = allKeyBags[0].key as forge.pki.rsa.PrivateKey;
-    let selectedCert = validCertBags[0].cert as forge.pki.Certificate;
+    // 4. Integridad: comprobar que el certificado y su clave privada correspondan
+    let selectedKey: forge.pki.rsa.PrivateKey | null = null;
+    let selectedCert: forge.pki.Certificate | null = null;
+    let foundSigningPair = false;
 
     for (const keyBag of allKeyBags) {
       const candidateKey = keyBag.key as forge.pki.rsa.PrivateKey;
@@ -72,15 +133,37 @@ export class P12ParserService {
           candidateKey &&
           pubKey.n &&
           candidateKey.n &&
-          pubKey.n.compareTo(candidateKey.n) === 0
+          pubKey.e &&
+          candidateKey.e &&
+          pubKey.n.compareTo(candidateKey.n) === 0 &&
+          pubKey.e.compareTo(candidateKey.e) === 0
         ) {
           selectedKey = candidateKey;
           selectedCert = candidateCert;
-          break;
+
+          if (this.isSigningCertificate(candidateCert)) {
+            foundSigningPair = true;
+            break;
+          }
         }
+      }
+      if (foundSigningPair) {
+        break;
       }
     }
 
+    if (!selectedKey || !selectedCert) {
+      throw new BadRequestException(
+        'CERTIFICATE_KEY_MISMATCH: El certificado X.509 y la clave privada del archivo .p12 no se corresponden.',
+      );
+    }
+
+    this.verifyKeyPairCryptographicIntegrity(
+      selectedKey,
+      selectedCert.publicKey as forge.pki.rsa.PublicKey,
+    );
+
+    // 2. Vigencia: comprobar que no esté caducado ni fuera de ventana de validez
     const now = new Date();
     const validFrom = selectedCert.validity.notBefore;
     const validTo = selectedCert.validity.notAfter;
@@ -97,6 +180,33 @@ export class P12ParserService {
       );
     }
 
+    // Format Issuer Name and Subject Name according to RFC 2253 (reverse order expected by SRI XAdES-BES)
+    const issuerName = this.formatDistinguishedName(selectedCert.issuer.attributes);
+    const subjectName = this.formatDistinguishedName(selectedCert.subject.attributes);
+
+    // Convert Hex Serial Number to Decimal string for X509SerialNumber
+    const cleanHexSerial =
+      (selectedCert.serialNumber || '01').replace(/[^0-9a-fA-F]/g, '').toLowerCase() || '01';
+    const serialNumberDec = BigInt(`0x${cleanHexSerial}`).toString(10);
+
+    // 1. Entidad certificadora: comprobar que proviene de una entidad reconocida para facturación electrónica
+    const shouldEnforceCa =
+      options?.enforceAccreditedCa ?? process.env.ALLOW_UNRECOGNIZED_CA !== 'true';
+    if (shouldEnforceCa && !this.isRecognizedCertificationAuthority(selectedCert, issuerName)) {
+      throw new BadRequestException(
+        `UNRECOGNIZED_CA_ISSUER: El certificado no proviene de una entidad certificadora acreditada y reconocida por el SRI (${issuerName}).`,
+      );
+    }
+
+    // 3. Identidad: verificar que el certificado corresponda al RUC del emisor
+    if (options?.expectedRuc) {
+      this.verifyCertificateRucIdentity(selectedCert, options.expectedRuc);
+    }
+
+    // 5. Revocación (synchronous check against configured/supplied revoked serials + CRL URL extraction)
+    const crlUrls = this.extractCrlUrls(selectedCert);
+    this.verifyNotInRevokedList(cleanHexSerial, serialNumberDec, options?.revokedSerialNumbers);
+
     // Convert certificate to X.509 DER and Base64
     const certAsn1 = forge.pki.certificateToAsn1(selectedCert);
     const certDerBytes = forge.asn1.toDer(certAsn1).getBytes();
@@ -106,14 +216,6 @@ export class P12ParserService {
     const sha1Md = forge.md.sha1.create();
     sha1Md.update(certDerBytes);
     const certSha1Base64 = forge.util.encode64(sha1Md.digest().getBytes());
-
-    // Format Issuer Name and Subject Name according to RFC 2253 (reverse order expected by SRI XAdES-BES)
-    const issuerName = this.formatDistinguishedName(selectedCert.issuer.attributes);
-    const subjectName = this.formatDistinguishedName(selectedCert.subject.attributes);
-
-    // Convert Hex Serial Number to Decimal string for X509SerialNumber
-    const cleanHexSerial = (selectedCert.serialNumber || '01').replace(/[^0-9a-fA-F]/g, '');
-    const serialNumberDec = BigInt(`0x${cleanHexSerial || '01'}`).toString(10);
 
     // Extract RSA Public Key Modulus and Exponent in Base64
     const pubKey = selectedCert.publicKey as forge.pki.rsa.PublicKey;
@@ -132,12 +234,346 @@ export class P12ParserService {
       certSha1Base64,
       issuerName,
       subjectName,
+      serialNumberHex: cleanHexSerial,
       serialNumberDec,
       modulusBase64,
       exponentBase64,
       validFrom,
       validTo,
+      crlUrls,
     };
+  }
+
+  /**
+   * 5. Revocación (Online CRL verification when applicable):
+   * Checks local revoked serials and, if the certificate includes HTTP/HTTPS CRL Distribution
+   * Points (cRLDistributionPoints) and CRL checking is enabled, downloads and parses the X.509 CRL
+   * to verify the certificate's serial number has not been revoked by the issuing CA.
+   */
+  async verifyRevocationStatus(
+    cert: forge.pki.Certificate,
+    options?: P12ValidationOptions,
+  ): Promise<void> {
+    const cleanHexSerial =
+      (cert.serialNumber || '01').replace(/[^0-9a-fA-F]/g, '').toLowerCase() || '01';
+    const serialNumberDec = BigInt(`0x${cleanHexSerial}`).toString(10);
+
+    this.verifyNotInRevokedList(cleanHexSerial, serialNumberDec, options?.revokedSerialNumbers);
+
+    if (process.env.CRL_CHECK_ENABLED === 'false') {
+      return;
+    }
+
+    const crlUrls = this.extractCrlUrls(cert);
+    if (crlUrls.length === 0) {
+      return;
+    }
+
+    for (const crlUrl of crlUrls) {
+      if (!this.isSafeCrlUrl(crlUrl)) {
+        this.logger.warn(`IGNORING_UNSAFE_CRL_URL: URL CRL omitida por seguridad: ${crlUrl}`);
+        continue;
+      }
+
+      try {
+        const response = await axios.get<ArrayBuffer>(crlUrl, {
+          responseType: 'arraybuffer',
+          timeout: 5000,
+          maxRedirects: 0,
+        });
+        const crlBuffer = Buffer.from(response.data);
+        if (this.isSerialInCrlDer(crlBuffer, cleanHexSerial)) {
+          throw new BadRequestException(
+            `CERTIFICATE_REVOKED: El certificado digital (serie ${serialNumberDec}) figura como revocado en la lista CRL de la entidad certificadora (${crlUrl}).`,
+          );
+        }
+        return;
+      } catch (error: unknown) {
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (process.env.CRL_STRICT_MODE === 'true') {
+          throw new BadRequestException(
+            `CRL_CHECK_FAILED: No se pudo verificar el estado de revocación del certificado en ${crlUrl} (${errMsg}).`,
+          );
+        }
+        this.logger.warn(
+          `No se pudo descargar la lista CRL desde ${crlUrl} (${errMsg}). Continuando en modo tolerante a fallos de red de la CA.`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Parses an X.509 CRL (DER or PEM) per RFC 5280 Section 5.1 and checks whether
+   * the given certificate hex serial number appears inside TBSCertList.revokedCertificates.
+   */
+  isSerialInCrlDer(crlBuffer: Buffer, certSerialHex: string): boolean {
+    const normalizedTarget = this.normalizeSerialHex(certSerialHex);
+    if (!normalizedTarget) {
+      return false;
+    }
+
+    let derBytes: string;
+    const textSample = crlBuffer.subarray(0, 64).toString('utf8');
+    if (textSample.includes('-----BEGIN X509 CRL-----')) {
+      const pemText = crlBuffer.toString('utf8');
+      const b64 = pemText
+        .replace(/-----BEGIN X509 CRL-----/g, '')
+        .replace(/-----END X509 CRL-----/g, '')
+        .replace(/\s+/g, '');
+      derBytes = forge.util.decode64(b64);
+    } else {
+      derBytes = crlBuffer.toString('binary');
+    }
+
+    const crlAsn1 = forge.asn1.fromDer(derBytes);
+    if (!Array.isArray(crlAsn1.value) || crlAsn1.value.length === 0) {
+      return false;
+    }
+
+    const tbsCertList = crlAsn1.value[0] as forge.asn1.Asn1;
+    if (!Array.isArray(tbsCertList.value)) {
+      return false;
+    }
+
+    // In RFC 5280 TBSCertList:
+    // 1st Universal SEQUENCE = signature (AlgorithmIdentifier)
+    // 2nd Universal SEQUENCE = issuer (Name)
+    // 3rd Universal SEQUENCE = revokedCertificates (SEQUENCE OF SEQUENCE { userCertificate INTEGER, revocationDate Time, ... })
+    const universalSequences = (tbsCertList.value as forge.asn1.Asn1[]).filter(
+      (node) =>
+        node.tagClass === forge.asn1.Class.UNIVERSAL && node.type === forge.asn1.Type.SEQUENCE,
+    );
+
+    if (universalSequences.length < 3) {
+      return false;
+    }
+
+    const revokedCertsSeq = universalSequences[2];
+    if (!Array.isArray(revokedCertsSeq.value)) {
+      return false;
+    }
+
+    for (const entry of revokedCertsSeq.value as forge.asn1.Asn1[]) {
+      if (
+        entry.tagClass === forge.asn1.Class.UNIVERSAL &&
+        entry.type === forge.asn1.Type.SEQUENCE &&
+        Array.isArray(entry.value) &&
+        entry.value.length > 0
+      ) {
+        const serialNode = entry.value[0] as forge.asn1.Asn1;
+        if (
+          serialNode.tagClass === forge.asn1.Class.UNIVERSAL &&
+          serialNode.type === forge.asn1.Type.INTEGER &&
+          typeof serialNode.value === 'string'
+        ) {
+          const entrySerialHex = this.normalizeSerialHex(forge.util.bytesToHex(serialNode.value));
+          if (entrySerialHex === normalizedTarget) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private verifyKeyPairCryptographicIntegrity(
+    privateKey: forge.pki.rsa.PrivateKey,
+    publicKey: forge.pki.rsa.PublicKey,
+  ): void {
+    try {
+      const challengeMd = forge.md.sha256.create();
+      challengeMd.update('sri-invoice-gateway-keypair-integrity-check', 'utf8');
+      const digestBytes = challengeMd.digest().getBytes();
+      const signatureBytes = privateKey.sign(challengeMd);
+      const isValid = publicKey.verify(digestBytes, signatureBytes);
+      if (!isValid) {
+        throw new Error('Signature verification returned false');
+      }
+    } catch {
+      throw new BadRequestException(
+        'CERTIFICATE_KEY_MISMATCH: Falló la prueba criptográfica de integridad entre el certificado y su clave privada.',
+      );
+    }
+  }
+
+  private isRecognizedCertificationAuthority(
+    cert: forge.pki.Certificate,
+    formattedIssuer: string,
+  ): boolean {
+    if (this.recognizedCaPatterns.some((pattern) => pattern.test(formattedIssuer))) {
+      return true;
+    }
+
+    for (const attr of cert.issuer.attributes) {
+      const val = String(attr.value || '');
+      if (this.recognizedCaPatterns.some((pattern) => pattern.test(val))) {
+        return true;
+      }
+    }
+
+    const extensions = (cert.extensions || []) as Array<{ id?: string; value?: string }>;
+    for (const ext of extensions) {
+      const extOid = String(ext.id || '');
+      if (this.recognizedEcuadorCaOidPrefixes.some((prefix) => extOid.startsWith(prefix))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private verifyCertificateRucIdentity(cert: forge.pki.Certificate, expectedRuc: string): void {
+    const cleanRuc = expectedRuc.trim();
+    if (!/^\d{13}$/.test(cleanRuc)) {
+      throw new BadRequestException(
+        `CERTIFICATE_RUC_MISMATCH: El RUC esperado (${expectedRuc}) no tiene un formato válido de 13 dígitos.`,
+      );
+    }
+
+    const candidateTexts: string[] = [];
+
+    for (const attr of cert.subject.attributes) {
+      if (attr.value) {
+        candidateTexts.push(String(attr.value));
+      }
+    }
+
+    const extensions = (cert.extensions || []) as Array<{ id?: string; value?: string }>;
+    for (const ext of extensions) {
+      if (typeof ext.value === 'string' && ext.value.length > 0) {
+        // Convert binary ASN.1 value to printable ASCII runs so embedded UTF8String/PrintableString OIDs are searchable
+        const printable = ext.value.replace(/[^\x20-\x7E]/g, ' ');
+        candidateTexts.push(printable);
+      }
+    }
+
+    const combinedText = candidateTexts.join(' | ');
+
+    // 1. Direct match on the 13-digit RUC in Subject attributes or Ecuadorian CA X.509 extensions
+    if (combinedText.includes(cleanRuc)) {
+      return;
+    }
+
+    // 2. Check if another conflicting 13-digit RUC (ending in 001..009) is present in the certificate
+    const thirteenDigitMatches: string[] = combinedText.match(/\b\d{10}00[1-9]\b/g) ?? [];
+    if (thirteenDigitMatches.length > 0 && !thirteenDigitMatches.includes(cleanRuc)) {
+      throw new BadRequestException(
+        `CERTIFICATE_RUC_MISMATCH: El certificado digital pertenece al RUC ${thirteenDigitMatches[0]} y no corresponde al RUC del emisor (${cleanRuc}).`,
+      );
+    }
+
+    // 3. For natural person RUCs (third digit 0..5 and ending in 001), Ecuadorian CAs may store the 10-digit Cédula in SERIALNUMBER / OID
+    const thirdDigit = Number(cleanRuc[2]);
+    const cedulaPrefix = cleanRuc.slice(0, 10);
+    if (thirdDigit >= 0 && thirdDigit <= 5 && cleanRuc.endsWith('001')) {
+      if (combinedText.includes(cedulaPrefix)) {
+        return;
+      }
+    }
+
+    throw new BadRequestException(
+      `CERTIFICATE_RUC_MISMATCH: El certificado digital no contiene ni corresponde al RUC del emisor (${cleanRuc}).`,
+    );
+  }
+
+  private verifyNotInRevokedList(
+    serialNumberHex: string,
+    serialNumberDec: string,
+    customRevokedList?: string[],
+  ): void {
+    const envRevoked = (process.env.REVOKED_CERT_SERIALS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const allRevoked = [...(customRevokedList || []), ...envRevoked];
+    if (allRevoked.length === 0) {
+      return;
+    }
+
+    const normalizedHex = this.normalizeSerialHex(serialNumberHex);
+    for (const candidate of allRevoked) {
+      const cleanCandidate = candidate.trim().toLowerCase();
+      if (
+        cleanCandidate === serialNumberDec ||
+        this.normalizeSerialHex(cleanCandidate) === normalizedHex
+      ) {
+        throw new BadRequestException(
+          `CERTIFICATE_REVOKED: El certificado digital (serie ${serialNumberDec}) se encuentra revocado.`,
+        );
+      }
+    }
+  }
+
+  private extractCrlUrls(cert: forge.pki.Certificate): string[] {
+    const urls = new Set<string>();
+    const extensions = (cert.extensions || []) as Array<{
+      id?: string;
+      name?: string;
+      value?: string;
+    }>;
+
+    for (const ext of extensions) {
+      if (ext.name === 'cRLDistributionPoints' || ext.id === '2.5.29.31') {
+        const rawValue = String(ext.value || '');
+        const matches = rawValue.match(/https?:\/\/[^\x00-\x1F\x7F"'\s<>]+/gi) || [];
+        for (const url of matches) {
+          urls.add(url);
+        }
+      }
+    }
+
+    return Array.from(urls);
+  }
+
+  private normalizeSerialHex(hexOrDec: string): string {
+    const cleaned = hexOrDec
+      .replace(/^0x/i, '')
+      .replace(/[^0-9a-fA-F]/g, '')
+      .toLowerCase();
+    return cleaned.replace(/^0+/, '') || '0';
+  }
+
+  private isSigningCertificate(cert: forge.pki.Certificate): boolean {
+    const basicConstraints = cert.getExtension('basicConstraints') as { cA?: boolean } | undefined;
+    if (basicConstraints?.cA) {
+      return false;
+    }
+
+    const keyUsage = cert.getExtension('keyUsage') as
+      { digitalSignature?: boolean; nonRepudiation?: boolean } | undefined;
+    if (keyUsage) {
+      return Boolean(keyUsage.digitalSignature || keyUsage.nonRepudiation);
+    }
+
+    return true;
+  }
+
+  private isSafeCrlUrl(crlUrl: string): boolean {
+    try {
+      const parsed = new URL(crlUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+      }
+      const host = parsed.hostname.toLowerCase();
+      if (
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '::1' ||
+        host === '169.254.169.254' ||
+        host.endsWith('.internal') ||
+        host.endsWith('.local')
+      ) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private formatDistinguishedName(attributes: forge.pki.CertificateField[]): string {
@@ -154,12 +590,18 @@ export class P12ParserService {
   private mapOidToShortName(oid: string): string | undefined {
     const map: Record<string, string> = {
       '2.5.4.3': 'CN',
+      '2.5.4.4': 'SN',
+      '2.5.4.5': 'SERIALNUMBER',
       '2.5.4.6': 'C',
       '2.5.4.7': 'L',
       '2.5.4.8': 'ST',
+      '2.5.4.9': 'STREET',
       '2.5.4.10': 'O',
       '2.5.4.11': 'OU',
-      '2.5.4.5': 'SERIALNUMBER',
+      '2.5.4.12': 'T',
+      '2.5.4.42': 'GIVENNAME',
+      '2.5.4.97': '2.5.4.97',
+      '1.2.840.113549.1.9.1': 'E',
     };
     return map[oid];
   }

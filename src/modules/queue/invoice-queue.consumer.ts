@@ -254,10 +254,11 @@ export class InvoiceQueueConsumer extends WorkerHost {
     p12FilePath: string | null,
   ): Promise<Buffer> {
     if (p12Binary && p12Binary.byteLength > 0) {
-      return Buffer.from(p12Binary);
+      return this.aesGcm.decryptBuffer(Buffer.from(p12Binary));
     }
     if (p12FilePath) {
-      return fs.readFile(p12FilePath);
+      const encryptedFile = await fs.readFile(p12FilePath);
+      return this.aesGcm.decryptBuffer(encryptedFile);
     }
     throw new Error('No se encontró el binario del certificado .p12 para el tenant.');
   }

@@ -22,6 +22,7 @@ describe('TenantsService', () => {
   };
   let p12ParserMock: {
     extractAndValidate: ReturnType<typeof vi.fn>;
+    verifyRevocationStatus: ReturnType<typeof vi.fn>;
   };
 
   const mockTenant: Tenant = {
@@ -54,11 +55,13 @@ describe('TenantsService', () => {
     };
     p12ParserMock = {
       extractAndValidate: vi.fn().mockReturnValue({
+        certificate: {},
         validFrom: new Date('2026-01-01T00:00:00.000Z'),
         validTo: new Date('2028-01-01T00:00:00.000Z'),
         subjectName: 'CN=EMPRESA DEMO S.A.,C=EC',
         issuerName: 'CN=SECURITY DATA,C=EC',
       }),
+      verifyRevocationStatus: vi.fn().mockResolvedValue(undefined),
     };
 
     service = new TenantsService(
@@ -137,8 +140,15 @@ describe('TenantsService', () => {
 
     expect(result.success).toBe(true);
     expect(result.certificate.encryptionAlgorithm).toBe('AES-256-GCM');
+    expect(result.certificate.rucVerified).toBe(true);
+    expect(p12ParserMock.extractAndValidate).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'MyP12Password',
+      { expectedRuc: '1790011674001' },
+    );
+    expect(p12ParserMock.verifyRevocationStatus).toHaveBeenCalled();
     expect(fs.writeFile).toHaveBeenCalledWith(
-      expect.stringContaining('1790011674001_tenant-123.p12'),
+      expect.stringContaining('1790011674001_tenant-123.p12.enc'),
       expect.any(Buffer),
       { mode: 0o600 },
     );

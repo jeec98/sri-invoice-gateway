@@ -16,7 +16,7 @@ function generateTestP12(password: string): Buffer {
 
   const attrs = [
     { name: 'commonName', value: 'EMISOR DE PRUEBA SRI' },
-    { name: 'organizationName', value: 'RHINOLABS ECUADOR' },
+    { name: 'organizationName', value: 'SECURITY DATA S.A.' },
     { name: 'countryName', value: 'EC' },
   ];
   cert.setSubject(attrs);

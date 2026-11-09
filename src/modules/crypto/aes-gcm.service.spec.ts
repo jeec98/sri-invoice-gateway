@@ -39,4 +39,24 @@ describe('AesGcmService', () => {
     const tamperedTag = Buffer.alloc(16, 0).toString('base64');
     expect(() => service.decrypt(encrypted.ciphertext, encrypted.iv, tamperedTag)).toThrow();
   });
+
+  it('should encrypt and decrypt a binary .p12 certificate buffer using AES-256-GCM', () => {
+    const rawP12Bytes = Buffer.from([0x30, 0x82, 0x05, 0x20, 0x02, 0x01, 0x03, 0xaa, 0xbb, 0xcc]);
+    const encryptedBuffer = service.encryptBuffer(rawP12Bytes);
+
+    expect(encryptedBuffer.subarray(0, 4).toString('ascii')).toBe('AGCM');
+    expect(encryptedBuffer.equals(rawP12Bytes)).toBe(false);
+
+    const decryptedBuffer = service.decryptBuffer(encryptedBuffer);
+    expect(decryptedBuffer.equals(rawP12Bytes)).toBe(true);
+  });
+
+  it('should reject unencrypted or tampered binary buffers on decryptBuffer', () => {
+    const plainBuffer = Buffer.from('unencrypted-p12-binary-content-that-is-over-32-bytes-long');
+    expect(() => service.decryptBuffer(plainBuffer)).toThrow(/INVALID_ENCRYPTED_BUFFER/);
+
+    const encrypted = service.encryptBuffer(Buffer.from('valid-p12-content'));
+    encrypted[encrypted.length - 1] ^= 0xff; // Tamper with last ciphertext byte
+    expect(() => service.decryptBuffer(encrypted)).toThrow();
+  });
 });
