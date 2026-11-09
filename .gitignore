@@ -44,3 +44,6 @@ Thumbs.db
 .agents/
 CLAUDE.md
 CLAUDE.local.md
+openspec/
+.sdd
+memory/

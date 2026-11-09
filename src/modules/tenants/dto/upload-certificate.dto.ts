@@ -22,21 +22,4 @@ export class UploadCertificateDto {
   password: string;
 }
 
-export class CreateTenantDto {
-  @ApiProperty({
-    description: 'Razón social o nombre comercial del Tenant',
-    example: 'Importadora Tecnológica del Ecuador S.A.',
-  })
-  @IsString()
-  @IsNotEmpty()
-  name: string;
-
-  @ApiProperty({
-    description: 'RUC de 13 dígitos del contribuyente',
-    example: '1790011674001',
-  })
-  @IsString()
-  @Length(13, 13)
-  @Matches(/^\d{13}$/)
-  ruc: string;
-}
+export { CreateTenantDto } from './create-tenant.dto';

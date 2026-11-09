@@ -6,7 +6,7 @@ import { ApiKeyGuard } from './api-key.guard';
 describe('ApiKeyGuard', () => {
   let guard: ApiKeyGuard;
   let prismaMock: {
-    tenant: {
+    apiClient: {
       findUnique: ReturnType<typeof vi.fn>;
     };
   };
@@ -28,38 +28,93 @@ describe('ApiKeyGuard', () => {
 
   beforeEach(() => {
     prismaMock = {
-      tenant: {
+      apiClient: {
         findUnique: vi.fn(),
       },
     };
     guard = new ApiKeyGuard(prismaMock as never);
   });
 
-  it('should reject requests without Authorization Bearer header', async () => {
+  it('should reject requests without Authorization header with MISSING_API_KEY', async () => {
     const { context } = createMockContext(undefined);
-    await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      new UnauthorizedException(
+        'MISSING_API_KEY: Debe proporcionar una API Key en el encabezado Authorization: Bearer <key>',
+      ),
+    );
   });
 
-  it('should reject requests with unknown or inactive tenant API key', async () => {
-    prismaMock.tenant.findUnique.mockResolvedValueOnce(null);
-    const { context } = createMockContext('Bearer sri_live_invalid_key');
-    await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+  it('should reject requests with malformed Authorization header with MISSING_API_KEY', async () => {
+    const { context } = createMockContext('Basic 123456');
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      new UnauthorizedException(
+        'MISSING_API_KEY: Debe proporcionar una API Key en el encabezado Authorization: Bearer <key>',
+      ),
+    );
   });
 
-  it('should authenticate active tenant by SHA-256 hash and attach tenant to request', async () => {
-    const rawKey = 'sri_live_valid_secret_key';
+  it('should reject requests with empty Bearer token with MISSING_API_KEY', async () => {
+    const { context } = createMockContext('Bearer   ');
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      new UnauthorizedException(
+        'MISSING_API_KEY: Debe proporcionar una API Key en el encabezado Authorization: Bearer <key>',
+      ),
+    );
+  });
+
+  it('should reject requests with nonexistent API Key with INVALID_API_KEY', async () => {
+    prismaMock.apiClient.findUnique.mockResolvedValueOnce(null);
+    const { context } = createMockContext(
+      'Bearer sri_live_invalidkey0000000000000000000000000000000000000000',
+    );
+
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      new UnauthorizedException(
+        'INVALID_API_KEY: La API Key proporcionada es inválida o no existe',
+      ),
+    );
+  });
+
+  it('should reject requests when ApiClient status is not ACTIVE with API_CLIENT_INACTIVE', async () => {
+    const rawKey = 'sri_live_abcdef1234567890abcdef1234567890abcdef1234567890';
+    const mockClient = {
+      id: 'client-1',
+      name: 'Suspended SaaS',
+      status: 'SUSPENDED',
+      plan: 'STANDARD',
+      rateLimitRps: 100,
+    };
+    prismaMock.apiClient.findUnique.mockResolvedValueOnce(mockClient);
+
+    const { context } = createMockContext(`Bearer ${rawKey}`);
+
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      new UnauthorizedException(
+        'API_CLIENT_INACTIVE: La plataforma SaaS asociada a esta API Key se encuentra inactiva o suspendida',
+      ),
+    );
+  });
+
+  it('should authenticate valid Bearer token, verify active ApiClient, and attach req.apiClient', async () => {
+    const rawKey = 'sri_live_abcdef1234567890abcdef1234567890abcdef1234567890';
     const expectedHash = crypto.createHash('sha256').update(rawKey).digest('hex');
-    const mockTenant = { id: 'tenant-1', ruc: '1790011674001', isActive: true };
+    const mockClient = {
+      id: 'client-1',
+      name: 'Active SaaS Platform',
+      status: 'ACTIVE',
+      plan: 'STANDARD',
+      rateLimitRps: 100,
+    };
 
-    prismaMock.tenant.findUnique.mockResolvedValueOnce(mockTenant);
+    prismaMock.apiClient.findUnique.mockResolvedValueOnce(mockClient);
     const { context, request } = createMockContext(`Bearer ${rawKey}`);
 
     const canActivate = await guard.canActivate(context);
 
     expect(canActivate).toBe(true);
-    expect(prismaMock.tenant.findUnique).toHaveBeenCalledWith({
+    expect(prismaMock.apiClient.findUnique).toHaveBeenCalledWith({
       where: { apiKeyHash: expectedHash },
     });
-    expect(request.tenant).toEqual(mockTenant);
+    expect(request.apiClient).toEqual(mockClient);
   });
 });

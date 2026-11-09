@@ -1,45 +1,78 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
-import { Tenant } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ApiClient, Certificate, Tenant } from '@prisma/client';
 import { InvoicesService } from './invoices.service';
 import { AccessKeyService } from './services/access-key.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { TenantAccessGuard } from '../tenants/guards/tenant-access.guard';
+import { ExecutionContext } from '@nestjs/common';
 
-describe('InvoicesService', () => {
+describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', () => {
   let service: InvoicesService;
   let prismaMock: {
+    certificate: {
+      findFirst: ReturnType<typeof vi.fn>;
+    };
     invoiceJob: {
       findFirst: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
+    };
+    tenant: {
+      findFirst: ReturnType<typeof vi.fn>;
     };
   };
   let queueMock: {
     add: ReturnType<typeof vi.fn>;
   };
 
+  const mockClient: ApiClient = {
+    id: 'client-uuid-1',
+    name: 'SaaS Platform Demo',
+    apiKeyHash: 'a'.repeat(64),
+    webhookUrl: 'https://saas.example.com/fallback-webhook',
+    status: 'ACTIVE',
+    plan: 'STANDARD',
+    rateLimitRps: 100,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
   const mockTenant: Tenant = {
     id: 'tenant-uuid-1',
-    name: 'Empresa Demo S.A.',
+    apiClientId: 'client-uuid-1',
+    businessName: 'Empresa Demo S.A.',
     ruc: '1790011674001',
-    apiKeyHash: 'a'.repeat(64),
+    status: 'ACTIVE',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const mockCertificate: Certificate = {
+    id: 'cert-uuid-1',
+    tenantId: 'tenant-uuid-1',
     p12Binary: Buffer.from('mock-p12'),
     p12FilePath: null,
     passwordCiphertext: 'cipher',
     passwordIv: 'iv',
     passwordAuthTag: 'tag',
-    certValidFrom: new Date('2026-01-01'),
-    certValidTo: new Date('2027-01-01'),
-    certSubject: 'CN=Demo',
-    certIssuer: 'CN=Issuer',
+    validFrom: new Date(Date.now() - 86400000), // yesterday
+    validTo: new Date(Date.now() + 31536000000), // next year
+    certSubject: 'CN=Empresa Demo,OID.2.5.4.97=VATEC-1790011674001',
+    certIssuer: 'CN=SECURITY DATA S.A.',
+    serialNumber: '12345678',
     isActive: true,
     createdAt: new Date(),
-    updatedAt: new Date(),
   };
 
   const validDto: CreateInvoiceDto = {
     referenceId: 'INV-2026-001',
     ambiente: '1',
-    webhookUrl: 'https://saas.example.com/webhook',
+    webhookUrl: 'https://saas.example.com/custom-webhook',
     razonSocial: 'Empresa Demo S.A.',
     ruc: '1790011674001',
     estab: '001',
@@ -78,9 +111,15 @@ describe('InvoicesService', () => {
 
   beforeEach(() => {
     prismaMock = {
+      certificate: {
+        findFirst: vi.fn().mockResolvedValue(mockCertificate),
+      },
       invoiceJob: {
         findFirst: vi.fn(),
         create: vi.fn(),
+      },
+      tenant: {
+        findFirst: vi.fn(),
       },
     };
     queueMock = {
@@ -89,46 +128,227 @@ describe('InvoicesService', () => {
     service = new InvoicesService(prismaMock as never, new AccessKeyService(), queueMock as never);
   });
 
-  it('should throw ForbiddenException (RUC_MISMATCH) when dto.ruc differs from tenant.ruc', async () => {
-    await expect(
-      service.enqueueInvoice(mockTenant, { ...validDto, ruc: '0999999999001' }),
-    ).rejects.toThrow(ForbiddenException);
-  });
+  describe('createInvoice (Hierarchical Ingestion)', () => {
+    it('should successfully ingest invoice, generate 49-digit claveAcceso, persist QUEUED job, and enqueue in BullMQ (<200ms)', async () => {
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(null);
+      prismaMock.invoiceJob.create.mockImplementationOnce(async ({ data }) => ({
+        id: 'job-uuid-999',
+        ...data,
+      }));
+      queueMock.add.mockResolvedValueOnce({ id: 'job-uuid-999' });
 
-  it('should throw BadRequestException (CERTIFICATE_NOT_CONFIGURED) when tenant has no certificate', async () => {
-    const unconfiguredTenant: Tenant = {
-      ...mockTenant,
-      p12Binary: null,
-      p12FilePath: null,
-    };
+      const startTime = Date.now();
+      const result = await service.createInvoice(mockTenant, validDto, mockClient);
+      const durationMs = Date.now() - startTime;
 
-    await expect(service.enqueueInvoice(unconfiguredTenant, validDto)).rejects.toThrow(
-      BadRequestException,
-    );
-  });
+      expect(durationMs).toBeLessThan(200);
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('QUEUED');
+      expect(result.referenceId).toBe('INV-2026-001');
+      expect(result.claveAcceso).toMatch(/^\d{49}$/);
+      expect(result.jobId).toBe('job-uuid-999');
 
-  it('should throw ConflictException (DUPLICATE_REFERENCE_ID) on duplicate referenceId for same tenant', async () => {
-    prismaMock.invoiceJob.findFirst.mockResolvedValueOnce({
-      id: 'existing-job-id',
-      claveAcceso: '0711202601179001167400110010010000001231234567815',
+      expect(prismaMock.certificate.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: mockTenant.id,
+          isActive: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      expect(prismaMock.invoiceJob.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          tenantId: mockTenant.id,
+          referenceId: validDto.referenceId,
+          ambiente: validDto.ambiente,
+          status: 'QUEUED',
+          webhookUrl: 'https://saas.example.com/custom-webhook',
+        }),
+      });
+
+      expect(queueMock.add).toHaveBeenCalledWith(
+        'process-sri-invoice',
+        {
+          invoiceJobId: 'job-uuid-999',
+          tenantId: mockTenant.id,
+          claveAcceso: result.claveAcceso,
+        },
+        expect.objectContaining({
+          jobId: 'job-uuid-999',
+        }),
+      );
     });
 
-    await expect(service.enqueueInvoice(mockTenant, validDto)).rejects.toThrow(ConflictException);
+    it('should fall back to apiClient.webhookUrl when dto.webhookUrl is omitted', async () => {
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(null);
+      prismaMock.invoiceJob.create.mockImplementationOnce(async ({ data }) => ({
+        id: 'job-uuid-999',
+        ...data,
+      }));
+      queueMock.add.mockResolvedValueOnce({ id: 'job-uuid-999' });
+
+      const dtoWithoutWebhook: CreateInvoiceDto = {
+        ...validDto,
+        webhookUrl: undefined as unknown as string,
+      };
+
+      await service.createInvoice(mockTenant, dtoWithoutWebhook, mockClient);
+
+      expect(prismaMock.invoiceJob.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          webhookUrl: 'https://saas.example.com/fallback-webhook',
+        }),
+      });
+    });
+
+    it('should throw ForbiddenException (RUC_MISMATCH) and create no DB/queue records when tenant.ruc !== dto.ruc', async () => {
+      const mismatchedDto: CreateInvoiceDto = {
+        ...validDto,
+        ruc: '0990098765001',
+      };
+
+      await expect(service.createInvoice(mockTenant, mismatchedDto, mockClient)).rejects.toThrow(
+        /RUC_MISMATCH: El RUC del emisor en el payload \(0990098765001\) no coincide con el RUC del tenant \(1790011674001\)/,
+      );
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException (MISSING_ACTIVE_CERTIFICATE) when tenant has no active certificate in certificates table', async () => {
+      prismaMock.certificate.findFirst.mockResolvedValueOnce(null);
+
+      await expect(service.createInvoice(mockTenant, validDto, mockClient)).rejects.toThrow(
+        /MISSING_ACTIVE_CERTIFICATE: El tenant no cuenta con un certificado digital activo/,
+      );
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException (MISSING_ACTIVE_CERTIFICATE) when certificate is expired', async () => {
+      prismaMock.certificate.findFirst.mockResolvedValueOnce({
+        ...mockCertificate,
+        validTo: new Date(Date.now() - 10000), // expired
+      });
+
+      await expect(service.createInvoice(mockTenant, validDto, mockClient)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException (DUPLICATE_REFERENCE_ID) on duplicate referenceId for same tenant', async () => {
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce({
+        id: 'existing-job-id',
+        claveAcceso: '0711202601179001167400110010010000001231234567815',
+      });
+
+      await expect(service.createInvoice(mockTenant, validDto, mockClient)).rejects.toThrow(
+        ConflictException,
+      );
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should block cross-tenant invoice ingestion via TenantAccessGuard with 403 TENANT_ACCESS_DENIED', async () => {
+      prismaMock.tenant.findFirst.mockResolvedValueOnce(null); // Tenant not belonging to client
+
+      const guard = new TenantAccessGuard(prismaMock as never);
+      const mockContext = {
+        switchToHttp: () => ({
+          getRequest: () => ({
+            apiClient: mockClient,
+            params: { tenantId: 'tenant-belonging-to-other-client' },
+          }),
+        }),
+      } as unknown as ExecutionContext;
+
+      await expect(guard.canActivate(mockContext)).rejects.toThrow(ForbiddenException);
+      await expect(guard.canActivate(mockContext)).rejects.toThrow(/TENANT_ACCESS_DENIED/);
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
   });
 
-  it('should generate 49-digit Clave de Acceso, persist QUEUED job, and enqueue in BullMQ', async () => {
-    prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(null);
-    prismaMock.invoiceJob.create.mockImplementationOnce(async ({ data }) => ({
-      id: 'job-uuid-999',
-      ...data,
-    }));
-    queueMock.add.mockResolvedValueOnce({ id: 'job-uuid-999' });
+  describe('getInvoiceByClaveAcceso (Hierarchical Status Query)', () => {
+    const validClaveAcceso = '1234567890123456789012345678901234567890123456789';
 
-    const result = await service.enqueueInvoice(mockTenant, validDto);
+    it('should return 200 OK with job details for an authorized invoice belonging to tenant', async () => {
+      const mockJob = {
+        id: 'job-uuid-1',
+        tenantId: mockTenant.id,
+        referenceId: 'INV-2026-001',
+        claveAcceso: validClaveAcceso,
+        ambiente: '1',
+        status: 'AUTORIZADO',
+        numeroAutorizacion: validClaveAcceso,
+        fechaAutorizacion: new Date('2026-11-07T12:00:00Z'),
+        sriMessages: [],
+        signedXml: '<signedXml/>',
+        authorizedXml: '<authorizedXml/>',
+        webhookDelivered: true,
+        webhookResponseStatus: 200,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
 
-    expect(result.success).toBe(true);
-    expect(result.status).toBe('QUEUED');
-    expect(result.claveAcceso).toMatch(/^\d{49}$/);
-    expect(queueMock.add).toHaveBeenCalledTimes(1);
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(mockJob);
+
+      const result = await service.getInvoiceByClaveAcceso(mockTenant, validClaveAcceso);
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('AUTORIZADO');
+      expect(result.numeroAutorizacion).toBe(validClaveAcceso);
+      expect(result.authorizedXml).toBe('<authorizedXml/>');
+      expect(result.signedXml).toBe('<signedXml/>');
+      expect(result.referenceId).toBe('INV-2026-001');
+
+      expect(prismaMock.invoiceJob.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: mockTenant.id,
+          claveAcceso: validClaveAcceso,
+        },
+      });
+    });
+
+    it('should throw NotFoundException (INVOICE_NOT_FOUND) when invoice belongs to another tenant (cross-tenant isolation)', async () => {
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(null);
+
+      await expect(service.getInvoiceByClaveAcceso(mockTenant, validClaveAcceso)).rejects.toThrow(
+        /INVOICE_NOT_FOUND: No se encontró la factura con la Clave de Acceso especificada para este tenant/,
+      );
+
+      expect(prismaMock.invoiceJob.findFirst).toHaveBeenCalledWith({
+        where: {
+          tenantId: mockTenant.id,
+          claveAcceso: validClaveAcceso,
+        },
+      });
+    });
+
+    it('should throw BadRequestException (INVALID_CLAVE_ACCESO) when claveAcceso has fewer than 49 digits or non-numeric characters', async () => {
+      const invalidClaves = [
+        '12345',
+        '123456789012345678901234567890123456789012345678', // 48 chars
+        '12345678901234567890123456789012345678901234567890', // 50 chars
+        '123456789012345678901234567890123456789012345678A', // alphanumeric
+      ];
+
+      for (const invalidClave of invalidClaves) {
+        await expect(service.getInvoiceByClaveAcceso(mockTenant, invalidClave)).rejects.toThrow(
+          BadRequestException,
+        );
+        await expect(service.getInvoiceByClaveAcceso(mockTenant, invalidClave)).rejects.toThrow(
+          /INVALID_CLAVE_ACCESO: La clave de acceso debe contener exactamente 49 dígitos numéricos/,
+        );
+      }
+
+      expect(prismaMock.invoiceJob.findFirst).not.toHaveBeenCalled();
+    });
   });
 });

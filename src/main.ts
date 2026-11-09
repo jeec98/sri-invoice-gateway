@@ -27,6 +27,12 @@ async function bootstrap() {
     )
     .setVersion('1.0.0')
     .addBearerAuth()
+    .addTag('API Clients', 'Aprovisionamiento de plataformas SaaS integradoras')
+    .addTag(
+      'Tenants & Certificates',
+      'Gestión de Empresas Emisoras y certificados .p12 cifrados con AES-256-GCM',
+    )
+    .addTag('Invoices', 'Ingesta asíncrona de facturas (<200ms) y consulta de autorización SRI')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

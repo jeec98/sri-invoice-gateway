@@ -7,26 +7,57 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Tenant {
-  id                  String       @id @default(uuid())
-  name                String
-  ruc                 String       @unique @db.VarChar(13)
-  apiKeyHash          String       @unique @map("api_key_hash") @db.VarChar(64)
-  p12Binary           Bytes?       @map("p12_binary")
-  p12FilePath         String?      @map("p12_file_path")
-  passwordCiphertext  String?      @map("password_ciphertext")
-  passwordIv          String?      @map("password_iv")
-  passwordAuthTag     String?      @map("password_auth_tag")
-  certValidFrom       DateTime?    @map("cert_valid_from")
-  certValidTo         DateTime?    @map("cert_valid_to")
-  certSubject         String?      @map("cert_subject")
-  certIssuer          String?      @map("cert_issuer")
-  isActive            Boolean      @default(true) @map("is_active")
-  createdAt           DateTime     @default(now()) @map("created_at")
-  updatedAt           DateTime     @updatedAt @map("updated_at")
-  invoiceJobs         InvoiceJob[]
+model ApiClient {
+  id           String    @id @default(uuid())
+  name         String
+  apiKeyHash   String    @unique @map("api_key_hash") @db.VarChar(64)
+  webhookUrl   String?   @map("webhook_url")
+  status       String    @default("ACTIVE")
+  plan         String    @default("STANDARD")
+  rateLimitRps Int       @default(100) @map("rate_limit_rps")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  tenants      Tenant[]
 
+  @@map("api_clients")
+}
+
+model Tenant {
+  id           String        @id @default(uuid())
+  apiClientId  String        @map("api_client_id")
+  apiClient    ApiClient     @relation(fields: [apiClientId], references: [id], onDelete: Cascade)
+  businessName String        @map("business_name")
+  ruc          String        @db.VarChar(13)
+  status       String        @default("ACTIVE")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  certificates Certificate[]
+  invoiceJobs  InvoiceJob[]
+
+  @@unique([apiClientId, ruc])
+  @@index([apiClientId])
   @@map("tenants")
+}
+
+model Certificate {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  p12Binary          Bytes?   @map("p12_binary")
+  p12FilePath        String?  @map("p12_file_path")
+  passwordCiphertext String   @map("password_ciphertext")
+  passwordIv         String   @map("password_iv")
+  passwordAuthTag    String   @map("password_auth_tag")
+  validFrom          DateTime @map("cert_valid_from")
+  validTo            DateTime @map("cert_valid_to")
+  certSubject        String   @map("cert_subject")
+  certIssuer         String   @map("cert_issuer")
+  serialNumber       String?  @map("serial_number")
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, isActive])
+  @@map("certificates")
 }
 
 model InvoiceJob {
@@ -55,4 +86,3 @@ model InvoiceJob {
   @@index([status])
   @@map("invoice_jobs")
 }
-

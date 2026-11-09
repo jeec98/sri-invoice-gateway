@@ -158,17 +158,17 @@ export class CreateInvoiceDto {
   @IsIn(['1', '2'])
   ambiente: '1' | '2';
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'URL del Webhook en el SaaS donde se notificará el resultado final',
     example: 'https://mi-saas.com/api/webhooks/sri',
   })
+  @IsOptional()
   @IsUrl({
     protocols: ['http', 'https'],
     require_protocol: true,
     require_tld: false,
   })
-  @IsNotEmpty()
-  webhookUrl: string;
+  webhookUrl?: string;
 
   // Datos Tributarios del Emisor
   @ApiProperty({ example: 'EMPRESA DEMO SAAS ECUADOR S.A.' })
