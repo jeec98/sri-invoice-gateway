@@ -8,6 +8,8 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 
 # Logs
 logs
