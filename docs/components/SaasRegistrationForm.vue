@@ -69,7 +69,8 @@
             placeholder="https://api.tusaas.com/webhooks/sri"
           />
           <p class="sr-hint">
-            <strong>¿Para qué sirve?</strong> Es la URL HTTPS de tu servidor SaaS donde el gateway enviará automáticamente (vía POST firmado con HMAC-SHA256) el resultado del SRI (<code>AUTORIZADO</code>, <code>DEVUELTA</code>, etc.) sin tener que hacer consultas repetitivas.
+            <strong>¿Para qué sirve?</strong> Tu servidor recibe un <code>POST</code> automático cuando el SRI responde (<code>AUTORIZADO</code>, <code>DEVUELTA</code>, etc.). Debe ser una URL <strong>HTTPS pública sin redirecciones (301/302)</strong> que responda <code>200 OK</code> en menos de 10s.
+            <a :href="withBase('/guide/webhooks#como-configurar-tu-webhook')">Ver guía de configuración de Webhook</a>.
           </p>
           <p v-if="fieldErrors.webhookUrl" class="sr-error-text" role="alert">
             {{ fieldErrors.webhookUrl }}
@@ -178,6 +179,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
+import { withBase } from 'vitepress';
 import {
   buildRegistrationEndpoint,
   buildRegistrationPayload,

@@ -4,6 +4,33 @@ Cuando un comprobante alcanza un estado terminal (`AUTORIZADO`, `DEVUELTA`, `NO_
 
 ---
 
+## Cómo Configurar tu Webhook para que Funcione {#como-configurar-tu-webhook}
+
+Para que tu servidor SaaS reciba correctamente las notificaciones del SRI sin errores de entrega, sigue estos **4 pasos**:
+
+### 1. Crea un endpoint `POST` público que cumpla estas reglas
+Tu plataforma SaaS debe exponer una ruta (por ejemplo `https://api.tusaas.com/webhooks/sri`) que cumpla **estrictamente** con lo siguiente:
+
+* **URL Pública HTTPS (sin `localhost` en producción)**: Por protección SSRF, en producción el gateway bloquea `localhost`, `127.0.0.1` e IPs privadas (`192.168.x.x`, `10.x.x.x`).
+* **Sin redirecciones (`301` / `302`)**: El gateway envía el `POST` con `maxRedirects: 0`. Si tu dominio redirige (por ejemplo de `http://` a `https://`, o de `tusaas.com` a `www.tusaas.com`, o quita/agrega `/` al final), **la entrega fallará**. Usa la URL exacta final del endpoint.
+* **Responde rápido (`HTTP 200` en menos de 10 segundos)**: El timeout máximo del gateway es `10,000 ms`. Tu endpoint debe recibir el JSON, guardar/encolar la actualización en tu sistema y responder `200 OK` de inmediato.
+* **No exijas `Authorization: Bearer`**: El gateway autenticará la petición usando la firma criptográfica `X-SRI-Gateway-Signature` (HMAC-SHA256), no con token de usuario.
+
+### 2. Configura tu URL en el Gateway (2 formas)
+* **Opción A — Global para todo tu SaaS**: Ingresa `webhookUrl` al registrar tu plataforma en el [formulario de registro](/guide/provisioning#formulario-de-registro) (`POST /v1/api-clients`). Todas las facturas usarán esa URL por defecto.
+* **Opción B — Por factura individual**: Envía `webhookUrl` dentro del body de `POST /v1/tenants/:tenantId/invoices`. Si la envías ahí, sobrescribe la URL global para esa factura puntual.
+
+### 3. Verifica la firma de seguridad (`WEBHOOK_SIGNING_SECRET`)
+Cada notificación llega firmada con la variable `WEBHOOK_SIGNING_SECRET` configurada en el servidor del gateway (Railway). Tu backend receptor debe comparar esa firma usando el algoritmo **HMAC-SHA256** (ver ejemplos abajo en Node.js y Python).
+
+### 4. ¿Cómo probarlo rápido antes de programar?
+1. Entra a **[webhook.site](https://webhook.site)** y copia la URL única HTTPS que te genera gratis (ej. `https://webhook.site/xxxxxxxx-...`).
+2. Pégala como tu `webhookUrl` al registrar el SaaS o al emitir una factura de prueba.
+3. En cuanto el SRI procese la factura, verás en vivo el JSON completo y los headers `X-SRI-Gateway-Signature` y `X-SRI-Gateway-Event` llegando a esa pantalla.
+*(Si quieres probar contra tu PC local, expón tu puerto local con `ngrok http 3000` y usa la URL `https://xxxx.ngrok-free.app/webhooks/sri`)*.
+
+---
+
 ## Validador de Firmas en Vivo
 
 Utilice la siguiente herramienta para verificar firmas HMAC-SHA256, inspeccionar payloads reales o depurar discrepancias criptográficas:

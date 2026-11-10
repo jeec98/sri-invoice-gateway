@@ -51,10 +51,11 @@ El **Webhook** es una URL de tu propio servidor (por ejemplo `https://tu-saas.co
 2. El gateway firma el XML (XAdES-BES) y lo tramita en segundo plano contra el SRI usando colas BullMQ.
 3. En cuanto el SRI responde (`AUTORIZADO`, `DEVUELTA`, `NO_AUTORIZADO` o `FAILED`), el gateway hace un `POST` automático a tu `webhookUrl` con el XML autorizado, número de autorización y firma criptográfica HMAC-SHA256 (`X-SRI-Gateway-Signature`).
 
-**¿Para qué sirve en la práctica?**
+**¿Para qué sirve y cómo configurarlo?**
 * Evita que tu SaaS tenga que consultar el estado de cada factura cada segundo (*polling* innecesario).
 * Te permite actualizar el estado de la factura en la base de datos de tu SaaS en tiempo real y enviar el PDF/XML al correo del cliente final apenas el SRI autoriza.
-* *(Es opcional al registrar el SaaS porque también puedes enviar un `webhookUrl` específico en cada factura o consultar vía `GET`).* Consulta la [guía de Webhooks](/guide/webhooks) para validar la firma HMAC.
+* **Requisitos para que funcione**: Debe ser una URL **HTTPS pública** (sin redirecciones `301/302`), aceptar `POST` JSON sin sesión de usuario, y responder `200 OK` en menos de **10 segundos**.
+* *(Es opcional al registrar el SaaS porque también puedes enviar un `webhookUrl` específico en cada factura o consultar vía `GET`).* Revisa la **[Guía paso a paso: Cómo configurar tu Webhook](/guide/webhooks#como-configurar-tu-webhook)** y el validador HMAC-SHA256.
 
 ---
 
