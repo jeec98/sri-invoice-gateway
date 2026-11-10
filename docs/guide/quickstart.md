@@ -33,22 +33,36 @@ sequenceDiagram
 
 ---
 
-## Paso 1: Provisionar Cliente SaaS
+## Paso 1: Registrar tu Plataforma SaaS (Una sola vez)
 
-Genera una credencial de acceso para tu plataforma SaaS. Esta clave maestra (`sri_live_*`) se utilizará en el encabezado `Authorization: Bearer <api_key>` en todas las llamadas subsiguientes:
+Aquí es donde registras tu plataforma SaaS dentro del gateway (puedes hacerlo directamente desde la interfaz de **Swagger (`/docs`)** o con `curl`, sin necesidad de crear un portal aparte). Esta llamada genera una credencial maestra (`sri_live_*`) que enviarás en el encabezado `Authorization: Bearer <api_key>` en todas las llamadas posteriores:
 
 ```bash
 curl -X POST https://api.gateway.com/v1/api-clients \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Mi Plataforma SaaS ERP",
-    "webhookUrl": "https://erp.misas.com/webhooks/sri"
+    "ruc": "1790011674001",
+    "webhookUrl": "https://erp.misaas.com/webhooks/sri",
+    "plan": "STANDARD",
+    "rateLimitRps": 100
   }'
 ```
 
-::: warning GUARDA TU API KEY
-La API key solo se devuelve una única vez durante el aprovisionamiento. En la base de datos únicamente se almacena su hash SHA-256.
+* **`ruc` (Cumplimiento SRI `NAC-DGERCGC26-00000027`)**: RUC de 13 dígitos (terminado en `001`) de tu empresa/plataforma proveedora del software. El gateway lo inyectará automáticamente en `<infoAdicional><campoAdicional nombre="RUC Proveedor">` en todas tus facturas.
+* **`webhookUrl` (Qué es y para qué sirve)**: Es la URL HTTPS de tu propio servidor donde el gateway te notificará automáticamente (vía `POST` firmado con HMAC-SHA256) cuando el SRI autorice o rechace una factura en segundo plano, evitando que tengas que consultar el estado repetidamente (*polling*). *(Es opcional al registrar el SaaS).*
+* **Planes disponibles (`plan`) y cuota (`rateLimitRps`)**:
+  * **`STANDARD`** *(por defecto)*: Ideal para SaaS iniciales o integración de un negocio (cuota base sugerida: `100` req/s).
+  * **`PRO`**: Para ERPs y plataformas en crecimiento con alto volumen de emisores (cuota sugerida: `250`–`500` req/s).
+  * **`ENTERPRISE`**: Para integradores masivos y cadenas de alto tráfico (cuota hasta `1000` req/s).
+  *(En tiempo de ejecución, el guardián Redis aplica el límite numérico configurado en `rateLimitRps`, entre `1` y `1000` peticiones por segundo).*
+
+::: danger REGISTRO ÚNICO POR RUC Y GUARDA TU API KEY DE INMEDIATO
+* **Solo se puede registrar una vez por RUC**: El `ruc` del SaaS es único (`@unique`); un segundo intento con el mismo RUC devolverá `409 Conflict` (`API_CLIENT_RUC_EXISTS`).
+* **Copia tu `apiKey` ahora mismo**: La clave en texto plano solo se muestra una única vez en esta respuesta y **no volverá a mostrarse nunca más** (en PostgreSQL solo se guarda su hash SHA-256).
 :::
+
+> Para ver todos los detalles de seguridad y tabla comparativa de planes, revisa la [Guía de Registro del SaaS y Planes](/guide/provisioning).
 
 ---
 

@@ -17,12 +17,14 @@ async function main() {
     where: { apiKeyHash },
     update: {
       name: 'Development Platform SaaS',
+      ruc: '1799999999001',
       plan: 'STANDARD',
       rateLimitRps: 100,
       status: 'ACTIVE',
     },
     create: {
       name: 'Development Platform SaaS',
+      ruc: '1799999999001',
       apiKeyHash,
       plan: 'STANDARD',
       rateLimitRps: 100,

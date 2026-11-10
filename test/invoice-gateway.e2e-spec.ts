@@ -200,6 +200,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'E2E SaaS Alpha Platform',
+        ruc: '1799999999001',
         webhookUrl: `http://127.0.0.1:${webhookPort}/webhooks/sri`,
         plan: 'PRO',
         rateLimitRps: 100,
@@ -227,6 +228,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'E2E SaaS Beta Platform',
+        ruc: '1798888888001',
         plan: 'STANDARD',
         rateLimitRps: 100,
       }),
@@ -703,6 +705,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'E2E SaaS Throttled Platform',
+        ruc: '1797777777001',
         plan: 'STANDARD',
         rateLimitRps: 2,
       }),

@@ -108,7 +108,11 @@ export class InvoiceQueueConsumer extends WorkerHost {
 
       // 3. Build canonical unsigned XML with pre-calculated 49-digit Clave de Acceso
       const payload = invoiceJob.payloadJson as unknown as CreateInvoiceDto;
-      const unsignedXml = this.xmlBuilder.buildFacturaXml(payload, claveAcceso);
+      const unsignedXml = this.xmlBuilder.buildFacturaXml(
+        payload,
+        claveAcceso,
+        tenant.apiClient?.ruc,
+      );
 
       // 4. Sign XML with XAdES-BES engine using ephemeral credentials
       const signedXml = this.xadesSigner.signXml(unsignedXml, ephemeralP12Buffer, certPassword);

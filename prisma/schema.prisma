@@ -10,6 +10,7 @@ datasource db {
 model ApiClient {
   id           String    @id @default(uuid())
   name         String
+  ruc          String?   @unique @db.VarChar(13)
   apiKeyHash   String    @unique @map("api_key_hash") @db.VarChar(64)
   webhookUrl   String?   @map("webhook_url")
   status       String    @default("ACTIVE")

@@ -35,12 +35,13 @@ Cada respuesta HTTP incluye información sobre el consumo de cuota por ventana d
 
 ## 1. POST /v1/api-clients
 
-**Provisionamiento de Plataforma SaaS (Platform Admin)**
+**Registro de Plataforma SaaS (Provisionamiento Único)**
 
-Registra un nuevo integrador SaaS en el gateway, genera una API Key maestra criptográfica de un solo uso (`sri_live_<48_hex>`) y almacena su hash SHA-256 en la base de datos PostgreSQL. 
+Aquí es donde se **registra tu plataforma SaaS** dentro del gateway (puedes ejecutarlo directamente desde **Swagger `/docs`**, Postman o `curl` sin necesitar un portal de registro aparte). Al ejecutarse, genera una API Key maestra criptográfica (`sri_live_<48_hex>`) y almacena su hash SHA-256 en PostgreSQL.
 
-> [!WARNING]
-> La API Key se retorna en texto claro **únicamente en la respuesta de este endpoint**. El gateway no almacena la clave en texto plano; si se extravía, debe aprovisionarse una nueva.
+> [!CAUTION]
+> 1. **Solo se puede registrar una única vez por RUC**: El `ruc` de tu plataforma es único en la base de datos. Si intentas registrar nuevamente el mismo RUC, la API responderá con `409 Conflict` (`API_CLIENT_RUC_EXISTS`).
+> 2. **Copia tu `apiKey` inmediatamente**: El valor en texto plano se devuelve **únicamente en esta respuesta y nunca volverá a mostrarse**. Guárdalo de inmediato en tus variables de entorno o gestor de secretos.
 
 ### Encabezados de Petición
 | Encabezado | Tipo | Requerido | Descripción |
@@ -51,9 +52,20 @@ Registra un nuevo integrador SaaS en el gateway, genera una API Key maestra crip
 | Campo | Tipo | Requerido | Restricciones / Descripción |
 | :--- | :--- | :--- | :--- |
 | `name` | `string` | **Sí** | Nombre comercial o identificador de la plataforma SaaS (ej. `"FacturaCloud SaaS"`). |
-| `webhookUrl` | `string` | No | URL HTTPS absoluta donde la plataforma recibirá notificaciones asíncronas de facturación por defecto. |
-| `plan` | `string` | No | Plan de servicio asignado. Opciones permitidas: `STANDARD` (default), `PRO`, `ENTERPRISE`. |
-| `rateLimitRps`| `number` | No | Cuota máxima de peticiones por segundo. Mínimo: 1, Máximo: 1000. Default: `100`. |
+| `ruc` | `string` | **Sí** | RUC de 13 dígitos numéricos del proveedor de software terminado en `001` (`/^\d{10}001$/`). Se inyecta automáticamente en `<campoAdicional nombre="RUC Proveedor">` de cada factura (Resolución SRI **NAC-DGERCGC26-00000027**). |
+| `webhookUrl` | `string` | No | **Qué es y para qué sirve**: URL HTTPS de tu propio servidor donde el gateway enviará automáticamente (vía `POST` firmado con HMAC-SHA256) el resultado del SRI (`AUTORIZADO`, `DEVUELTA`, `NO_AUTORIZADO` o `FAILED`) cuando termine la cola asíncrona, evitando hacer *polling* constante. |
+| `plan` | `string` | No | Nivel de plan asignado al SaaS: `STANDARD` (default), `PRO` o `ENTERPRISE`. *(Ver tabla de planes abajo).* |
+| `rateLimitRps`| `number` | No | Cuota máxima de peticiones por segundo aplicada por Redis (`RateLimitGuard`). Mínimo: `1`, Máximo: `1000`. Default: `100`. |
+
+### Planes Disponibles (`plan`)
+
+El campo `plan` define la categoría operativa del SaaS en base de datos, mientras que `rateLimitRps` aplica la cuota real de peticiones por segundo en Redis:
+
+| Plan | Perfil Recomendado | `rateLimitRps` Sugerido | Capacidades Incluidas |
+| :--- | :--- | :--- | :--- |
+| **`STANDARD`** *(default)* | SaaS iniciales o integración de un negocio | `100` req/s | Multi-tenant, carga de certificados `.p12` cifrados AES-256-GCM, firma XAdES-BES, colas BullMQ y webhooks HMAC. |
+| **`PRO`** | ERPs y plataformas SaaS con volumen medio/alto | `250` – `500` req/s | Mismas capacidades técnicas con mayor cuota de tráfico configurada por segundo para picos de emisión. |
+| **`ENTERPRISE`** | Integradores masivos y cadenas multi-sucursal | `500` – `1000` req/s | Mismas capacidades técnicas con techo máximo de concurrencia HTTP (hasta `1000` req/s). |
 
 ### Ejemplos de Implementación
 
@@ -64,6 +76,7 @@ curl -X POST https://api.tu-dominio.com/v1/api-clients \
   -H "Content-Type: application/json" \
   -d '{
     "name": "FacturaCloud SaaS",
+    "ruc": "1790011674001",
     "webhookUrl": "https://api.facturacloud.io/webhooks/sri",
     "plan": "ENTERPRISE",
     "rateLimitRps": 200
@@ -75,6 +88,7 @@ import axios from 'axios';
 
 interface CreateApiClientDto {
   name: string;
+  ruc: string;
   webhookUrl?: string;
   plan?: 'STANDARD' | 'PRO' | 'ENTERPRISE';
   rateLimitRps?: number;
@@ -83,6 +97,7 @@ interface CreateApiClientDto {
 interface ApiClientResponse {
   id: string;
   name: string;
+  ruc: string;
   apiKey: string;
   apiKeyHash: string;
   webhookUrl: string | null;
@@ -96,6 +111,7 @@ interface ApiClientResponse {
 async function provisionSaaSCredentials(): Promise<ApiClientResponse> {
   const payload: CreateApiClientDto = {
     name: 'FacturaCloud SaaS',
+    ruc: '1790011674001',
     webhookUrl: 'https://api.facturacloud.io/webhooks/sri',
     plan: 'ENTERPRISE',
     rateLimitRps: 200,
@@ -121,6 +137,7 @@ def provision_saas_credentials() -> dict:
     url = "https://api.tu-dominio.com/v1/api-clients"
     payload = {
         "name": "FacturaCloud SaaS",
+        "ruc": "1790011674001",
         "webhookUrl": "https://api.facturacloud.io/webhooks/sri",
         "plan": "ENTERPRISE",
         "rateLimitRps": 200
@@ -144,6 +161,7 @@ def provision_saas_credentials() -> dict:
 {
   "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "name": "FacturaCloud SaaS",
+  "ruc": "1790011674001",
   "apiKey": "sri_live_e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "apiKeyHash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   "webhookUrl": "https://api.facturacloud.io/webhooks/sri",
@@ -161,6 +179,7 @@ def provision_saas_credentials() -> dict:
 | `400 Bad Request` | `name should not be empty` | El nombre del integrador es obligatorio o los tipos son incorrectos. |
 | `400 Bad Request` | `webhookUrl must be an URL address` | La URL de webhook no tiene formato de URL absoluto válido. |
 | `400 Bad Request` | `rateLimitRps must not be greater than 1000` | Cuota de peticiones fuera de rango permitido (1 - 1000). |
+| `409 Conflict` | `API_CLIENT_RUC_EXISTS` | Ya existe una plataforma SaaS registrada con ese mismo RUC. |
 
 ---
 

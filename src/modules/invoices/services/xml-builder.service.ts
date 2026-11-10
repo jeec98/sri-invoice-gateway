@@ -14,7 +14,7 @@ export class XmlBuilderService {
    * Builds the canonical UTF-8 XML for Ecuadorian SRI Electronic Invoice
    * `<factura id="comprobante" version="1.1.0">`.
    */
-  buildFacturaXml(dto: CreateInvoiceDto, claveAcceso: string): string {
+  buildFacturaXml(dto: CreateInvoiceDto, claveAcceso: string, providerRuc?: string | null): string {
     const estab = dto.estab.trim().padStart(3, '0');
     const ptoEmi = dto.ptoEmi.trim().padStart(3, '0');
     const secuencial = dto.secuencial.trim().padStart(9, '0');
@@ -149,9 +149,23 @@ export class XmlBuilderService {
     lines.push('  </detalles>');
 
     // 4. <infoAdicional>
-    if (dto.infoAdicional && dto.infoAdicional.length > 0) {
+    const infoAdicional = [...(dto.infoAdicional ?? [])];
+    const cleanProviderRuc = providerRuc?.trim();
+    if (cleanProviderRuc) {
+      const hasRucProveedor = infoAdicional.some(
+        (campo) => campo.nombre.trim().toLowerCase() === 'ruc proveedor',
+      );
+      if (!hasRucProveedor) {
+        infoAdicional.push({
+          nombre: 'RUC Proveedor',
+          valor: cleanProviderRuc,
+        });
+      }
+    }
+
+    if (infoAdicional.length > 0) {
       lines.push('  <infoAdicional>');
-      for (const campo of dto.infoAdicional) {
+      for (const campo of infoAdicional) {
         lines.push(
           `    <campoAdicional nombre="${this.escapeXml(campo.nombre)}">${this.escapeXml(campo.valor)}</campoAdicional>`,
         );

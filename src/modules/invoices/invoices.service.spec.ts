@@ -33,6 +33,7 @@ describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', 
   const mockClient: ApiClient = {
     id: 'client-uuid-1',
     name: 'SaaS Platform Demo',
+    ruc: '1799999999001',
     apiKeyHash: 'a'.repeat(64),
     webhookUrl: 'https://saas.example.com/fallback-webhook',
     status: 'ACTIVE',

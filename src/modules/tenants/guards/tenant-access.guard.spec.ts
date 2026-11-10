@@ -15,6 +15,7 @@ describe('TenantAccessGuard — Double-Lock Multi-Tenant Authorization', () => {
   const mockClient: ApiClient = {
     id: 'client-uuid-1',
     name: 'SaaS Platform A',
+    ruc: '1799999999001',
     apiKeyHash: 'hash-1',
     webhookUrl: 'https://client-a.com/webhook',
     status: 'ACTIVE',

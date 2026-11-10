@@ -39,6 +39,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
   const mockApiClient: ApiClient = {
     id: 'client-1',
     name: 'SaaS Platform Root',
+    ruc: '1799999999001',
     apiKeyHash: 'hash-1',
     webhookUrl: 'https://api.saasplatform.com/sri-callback',
     status: 'ACTIVE',

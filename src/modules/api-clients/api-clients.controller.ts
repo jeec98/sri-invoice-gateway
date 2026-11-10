@@ -21,7 +21,12 @@ export class ApiClientsController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Parámetros de entrada inválidos (URL malformada, rateLimitRps no positivo).',
+    description:
+      'Parámetros de entrada inválidos (URL malformada, RUC inválido, rateLimitRps no positivo).',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'API_CLIENT_RUC_EXISTS: Ya existe una plataforma SaaS registrada con este RUC.',
   })
   async create(@Body() dto: CreateApiClientDto): Promise<ApiClientWithRawKey> {
     return this.apiClientsService.create(dto);
