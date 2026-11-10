@@ -9,7 +9,6 @@ import {
 
 describe('SaasRegistrationForm utilities', () => {
   const validInput: SaasFormInput = {
-    apiBaseUrl: 'https://sri-invoice-gateway-production.up.railway.app/',
     name: 'FacturaCloud SaaS',
     ruc: '1790011674001',
     webhookUrl: 'https://api.facturacloud.io/webhooks/sri',
@@ -47,15 +46,13 @@ describe('SaasRegistrationForm utilities', () => {
     expect('webhookUrl' in payload).toBe(false);
   });
 
-  it('should reject out-of-range rateLimitRps and invalid URLs', () => {
+  it('should reject out-of-range rateLimitRps and invalid webhookUrl', () => {
     const res = validateSaasForm({
       ...validInput,
-      apiBaseUrl: 'ftp://invalid.com',
       webhookUrl: 'not-a-url',
       rateLimitRps: 1500,
     });
     expect(res.valid).toBe(false);
-    expect(res.errors.apiBaseUrl).toBeDefined();
     expect(res.errors.webhookUrl).toBeDefined();
     expect(res.errors.rateLimitRps).toBeDefined();
   });

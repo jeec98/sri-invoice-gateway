@@ -29,7 +29,6 @@ export const SAAS_PLANS: Record<SaasPlan, SaasPlanMeta> = {
 };
 
 export interface SaasFormInput {
-  apiBaseUrl: string;
   name: string;
   ruc: string;
   webhookUrl: string;
@@ -69,12 +68,6 @@ export function isValidProviderRuc(rawRuc: string): boolean {
 
 export function validateSaasForm(input: SaasFormInput): ValidationResult {
   const errors: Partial<Record<keyof SaasFormInput, string>> = {};
-
-  const cleanBase = normalizeBaseUrl(input.apiBaseUrl);
-  if (!cleanBase || !isValidHttpUrl(cleanBase)) {
-    errors.apiBaseUrl =
-      'Ingresa la URL válida de tu API en Railway o local (ej. https://tu-api.up.railway.app).';
-  }
 
   if (!input.name || !input.name.trim()) {
     errors.name = 'El nombre de tu plataforma SaaS es obligatorio.';
@@ -126,4 +119,3 @@ export function buildRegistrationEndpoint(apiBaseUrl: string): string {
   }
   return `${base}/v1/api-clients`;
 }
-

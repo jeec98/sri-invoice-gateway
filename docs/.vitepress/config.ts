@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress';
 import { withMermaid } from 'vitepress-plugin-mermaid';
+import path from 'node:path';
 
 const rawBase = process.env.DOCS_BASE_URL || '/';
 const base = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
@@ -92,6 +93,9 @@ export default withMermaid(
     },
     mermaid: {
       theme: 'default',
+    },
+    vite: {
+      envDir: path.resolve(__dirname, '../..'),
     },
   })
 );

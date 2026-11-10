@@ -5,34 +5,12 @@
         <div class="sr-badge">Registro En Vivo · POST /v1/api-clients</div>
         <h3 class="sr-title">Registrar Plataforma SaaS y Obtener API Key</h3>
         <p class="sr-subtitle">
-          Completa este formulario para aprovisionar tu plataforma integradora directamente en tu microservicio.
+          Completa este formulario para aprovisionar tu plataforma integradora directamente en el microservicio.
           Recuerda que <strong>solo puedes registrar cada RUC una única vez</strong> y que la <code>apiKey</code> generada no volverá a mostrarse.
         </p>
       </div>
 
       <form v-if="!createdClient" class="sr-form" @submit.prevent="handleSubmit" novalidate>
-        <!-- API Base URL -->
-        <div class="sr-field">
-          <label for="sr-api-url" class="sr-label">
-            URL de tu Microservicio (Gateway API) <span class="sr-required">*</span>
-          </label>
-          <input
-            id="sr-api-url"
-            v-model="form.apiBaseUrl"
-            type="url"
-            class="sr-input sr-mono"
-            :class="{ 'is-invalid': fieldErrors.apiBaseUrl }"
-            placeholder="https://tu-servicio.up.railway.app"
-            autocomplete="url"
-          />
-          <p class="sr-hint">
-            Pega aquí la URL pública que te generó Railway (sin <code>/docs</code> ni <code>/v1</code> al final) o <code>http://localhost:3000</code> en local.
-          </p>
-          <p v-if="fieldErrors.apiBaseUrl" class="sr-error-text" role="alert">
-            {{ fieldErrors.apiBaseUrl }}
-          </p>
-        </div>
-
         <div class="sr-grid-2">
           <!-- Name -->
           <div class="sr-field">
@@ -223,7 +201,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import {
   buildRegistrationEndpoint,
   buildRegistrationPayload,
@@ -245,16 +223,14 @@ interface CreatedApiClientResponse {
   status: string;
 }
 
-const STORAGE_KEY = 'sri_gateway_api_url';
-const envApiUrl =
+const configuredApiUrl =
   typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL)
+    ? normalizeBaseUrl(String(import.meta.env.VITE_API_BASE_URL))
     : '';
 
 const planOptions = Object.values(SAAS_PLANS);
 
 const form = reactive<SaasFormInput>({
-  apiBaseUrl: envApiUrl || '',
   name: '',
   ruc: '',
   webhookUrl: '',
@@ -268,18 +244,22 @@ const submitting = ref(false);
 const createdClient = ref<CreatedApiClientResponse | null>(null);
 const copiedKey = ref(false);
 
-onMounted(() => {
-  if (!form.apiBaseUrl && typeof window !== 'undefined') {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      form.apiBaseUrl = saved;
-    }
+const resolvedApiBaseUrl = computed(() => {
+  if (configuredApiUrl) {
+    return configuredApiUrl;
   }
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    return 'http://localhost:3000';
+  }
+  return '';
 });
 
 const cleanBaseForSnippet = computed(() => {
-  const normalized = normalizeBaseUrl(form.apiBaseUrl || 'https://tu-servicio.up.railway.app');
-  return normalized.endsWith('/v1') ? normalized.slice(0, -3) : normalized;
+  const base = resolvedApiBaseUrl.value || 'https://api.tu-dominio.com';
+  return base.endsWith('/v1') ? base.slice(0, -3) : base;
 });
 
 function selectPlan(planId: SaasPlan) {
@@ -323,12 +303,17 @@ async function handleSubmit() {
     return;
   }
 
-  const endpoint = buildRegistrationEndpoint(form.apiBaseUrl);
-  const payload = buildRegistrationPayload(form);
-
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, normalizeBaseUrl(form.apiBaseUrl));
+  if (!resolvedApiBaseUrl.value) {
+    serverError.value = {
+      title: 'Endpoint de API no configurado',
+      detail:
+        'Falta configurar la variable de entorno VITE_API_BASE_URL en Cloudflare Pages (.env) con la URL de tu microservicio.',
+    };
+    return;
   }
+
+  const endpoint = buildRegistrationEndpoint(resolvedApiBaseUrl.value);
+  const payload = buildRegistrationPayload(form);
 
   submitting.value = true;
   try {
@@ -366,8 +351,8 @@ async function handleSubmit() {
     createdClient.value = data as CreatedApiClientResponse;
   } catch (err) {
     serverError.value = {
-      title: 'No se pudo conectar con la URL del microservicio',
-      detail: `Verifica que la URL (${endpoint}) sea correcta, use https:// si estás en producción y que tu servicio en Railway esté activo y con CORS habilitado. Detalle: ${(err as Error)?.message || 'Error de red'}`,
+      title: 'No se pudo conectar con el microservicio',
+      detail: `Verifica que el servidor esté activo y con CORS habilitado. Detalle: ${(err as Error)?.message || 'Error de red'}`,
     };
   } finally {
     submitting.value = false;
@@ -704,4 +689,3 @@ async function handleSubmit() {
   font-family: var(--vp-font-family-mono);
 }
 </style>
-
