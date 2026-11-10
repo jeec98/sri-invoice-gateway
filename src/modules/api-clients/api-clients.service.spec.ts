@@ -32,8 +32,7 @@ describe('ApiClientsService & CreateApiClientDto', () => {
         name: 'FacturaCloud SaaS',
         ruc: '1790011674001',
         webhookUrl: 'https://api.facturacloud.io/webhooks/sri',
-        plan: 'STANDARD',
-        rateLimitRps: 100,
+        rateLimitRps: 20,
       });
 
       const errors = await validate(dto);
@@ -60,7 +59,7 @@ describe('ApiClientsService & CreateApiClientDto', () => {
 
       const dtoInvalid = plainToInstance(CreateApiClientDto, {
         name: 'QuickERP',
-        ruc: '1790011674', // not 13 digits ending in 001
+        ruc: '1790011674',
       });
       const errorsInvalid = await validate(dtoInvalid);
       expect(errorsInvalid.length).toBeGreaterThan(0);
@@ -79,7 +78,7 @@ describe('ApiClientsService & CreateApiClientDto', () => {
       expect(errors[0].property).toBe('webhookUrl');
     });
 
-    it('should fail validation when rateLimitRps is non-positive (<= 0)', async () => {
+    it('should fail validation when rateLimitRps is out of range (<= 0 or > 100)', async () => {
       const dtoZero = plainToInstance(CreateApiClientDto, {
         name: 'FacturaCloud SaaS',
         ruc: '1790011674001',
@@ -97,6 +96,15 @@ describe('ApiClientsService & CreateApiClientDto', () => {
       const errorsNegative = await validate(dtoNegative);
       expect(errorsNegative.length).toBeGreaterThan(0);
       expect(errorsNegative[0].property).toBe('rateLimitRps');
+
+      const dtoTooHigh = plainToInstance(CreateApiClientDto, {
+        name: 'FacturaCloud SaaS',
+        ruc: '1790011674001',
+        rateLimitRps: 101,
+      });
+      const errorsTooHigh = await validate(dtoTooHigh);
+      expect(errorsTooHigh.length).toBeGreaterThan(0);
+      expect(errorsTooHigh[0].property).toBe('rateLimitRps');
     });
 
     it('should fail validation when name is empty', async () => {
@@ -117,8 +125,7 @@ describe('ApiClientsService & CreateApiClientDto', () => {
         name: 'FacturaCloud SaaS',
         ruc: '1790011674001',
         webhookUrl: 'https://api.facturacloud.io/webhooks/sri',
-        plan: 'STANDARD',
-        rateLimitRps: 100,
+        rateLimitRps: 20,
       };
 
       const mockCreatedRecord = {
@@ -127,8 +134,8 @@ describe('ApiClientsService & CreateApiClientDto', () => {
         ruc: dto.ruc,
         apiKeyHash: 'mock-hash',
         webhookUrl: dto.webhookUrl,
-        plan: 'STANDARD',
-        rateLimitRps: 100,
+        plan: 'DEFAULT',
+        rateLimitRps: 20,
         status: 'ACTIVE',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -143,24 +150,24 @@ describe('ApiClientsService & CreateApiClientDto', () => {
       expect(result.id).toBe('client-uuid-1');
       expect(result.name).toBe('FacturaCloud SaaS');
       expect(result.ruc).toBe('1790011674001');
+      expect(result.plan).toBe('DEFAULT');
       expect(result.status).toBe('ACTIVE');
 
       expect(prismaMock.apiClient.create).toHaveBeenCalledTimes(1);
       const createArgs = prismaMock.apiClient.create.mock.calls[0][0];
 
-      // Verify SHA-256 hash of generated key matches what was passed to Prisma
       const expectedHash = crypto.createHash('sha256').update(result.apiKey).digest('hex');
       expect(createArgs.data.apiKeyHash).toBe(expectedHash);
-      expect(createArgs.data.apiKeyHash).not.toBe(result.apiKey); // Raw key never in apiKeyHash
+      expect(createArgs.data.apiKeyHash).not.toBe(result.apiKey);
       expect(createArgs.data.status).toBe('ACTIVE');
       expect(createArgs.data.name).toBe('FacturaCloud SaaS');
       expect(createArgs.data.ruc).toBe('1790011674001');
       expect(createArgs.data.webhookUrl).toBe('https://api.facturacloud.io/webhooks/sri');
-      expect(createArgs.data.plan).toBe('STANDARD');
-      expect(createArgs.data.rateLimitRps).toBe(100);
+      expect(createArgs.data.plan).toBe('DEFAULT');
+      expect(createArgs.data.rateLimitRps).toBe(20);
     });
 
-    it('should use default values for plan (STANDARD) and rateLimitRps (100) when omitted', async () => {
+    it('should assign unified plan (DEFAULT) and default rateLimitRps (20) when omitted', async () => {
       const dto: CreateApiClientDto = {
         name: 'QuickERP',
         ruc: '1790011674001',
@@ -172,8 +179,8 @@ describe('ApiClientsService & CreateApiClientDto', () => {
         ruc: '1790011674001',
         apiKeyHash: 'mock-hash-2',
         webhookUrl: null,
-        plan: 'STANDARD',
-        rateLimitRps: 100,
+        plan: 'DEFAULT',
+        rateLimitRps: 20,
         status: 'ACTIVE',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -186,8 +193,8 @@ describe('ApiClientsService & CreateApiClientDto', () => {
       expect(result.apiKey).toMatch(/^sri_live_[0-9a-f]{48}$/);
       const createArgs = prismaMock.apiClient.create.mock.calls[0][0];
       expect(createArgs.data.ruc).toBe('1790011674001');
-      expect(createArgs.data.plan).toBe('STANDARD');
-      expect(createArgs.data.rateLimitRps).toBe(100);
+      expect(createArgs.data.plan).toBe('DEFAULT');
+      expect(createArgs.data.rateLimitRps).toBe(20);
       expect(createArgs.data.status).toBe('ACTIVE');
     });
 

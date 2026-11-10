@@ -62,7 +62,7 @@ describe('TenantsService — Multi-SaaS Multi-Tenant Management', () => {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
         findMany: vi.fn(),
-        count: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
         create: vi.fn(),
         update: vi.fn(),
       },

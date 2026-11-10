@@ -1,4 +1,4 @@
-# Registro del SaaS, Planes y Autenticación
+# Registro del SaaS, Cuota Única y Autenticación
 
 El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registra tu plataforma SaaS** dentro de `sri-invoice-gateway`. Puedes registrarlo directamente usando el formulario interactivo de abajo, desde Swagger (`/docs`) o con `curl`.
 
@@ -19,9 +19,7 @@ El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registr
 
 ## ¿Cómo registrar tu SaaS vía API / cURL?
 
-Puedes hacerlo de dos formas:
-- **Desde Swagger UI**: Abre `https://tu-api.up.railway.app/docs`, despliega **`API Clients` ➔ `POST /v1/api-clients`**, haz clic en **Try it out**, pega el JSON y presiona **Execute**.
-- **Desde consola (`curl`) o tu cliente HTTP**:
+Puedes hacerlo desde **Swagger UI** (`https://tu-api.up.railway.app/docs` ➔ `POST /v1/api-clients`) o desde tu consola:
 
 ```bash
 curl -X POST https://tu-api.up.railway.app/v1/api-clients \
@@ -29,9 +27,7 @@ curl -X POST https://tu-api.up.railway.app/v1/api-clients \
   -d '{
     "name": "FacturaCloud SaaS",
     "ruc": "1790011674001",
-    "webhookUrl": "https://api.facturacloud.io/webhooks/sri",
-    "plan": "PRO",
-    "rateLimitRps": 250
+    "webhookUrl": "https://api.facturacloud.io/webhooks/sri"
   }'
 ```
 
@@ -42,8 +38,6 @@ curl -X POST https://tu-api.up.railway.app/v1/api-clients \
 | **`name`** | **Sí** | `string` | Nombre identificador de tu plataforma SaaS o ERP (ej. `"FacturaCloud SaaS"`). |
 | **`ruc`** | **Sí** | `string` | RUC de 13 dígitos numéricos del proveedor del software/SaaS terminado en `001` (regex: `/^\d{10}001$/`). El gateway inyecta este RUC automáticamente en `<infoAdicional><campoAdicional nombre="RUC Proveedor">...</campoAdicional></infoAdicional>` de todas las facturas emitidas bajo tu plataforma (Resolución SRI **NAC-DGERCGC26-00000027**). |
 | **`webhookUrl`** | No | `string` (URL) | URL HTTPS de tu SaaS donde el gateway enviará las notificaciones automáticas de autorización del SRI. *(Ver sección Webhook abajo).* |
-| **`plan`** | No | `enum` | Nivel de plan asignado al SaaS: `STANDARD` (por defecto), `PRO` o `ENTERPRISE`. |
-| **`rateLimitRps`** | No | `number` | Límite máximo de peticiones por segundo permitido para tu plataforma (`1` a `1000`, por defecto `100`). |
 
 ---
 
@@ -64,19 +58,15 @@ El **Webhook** es una URL de tu propio servidor (por ejemplo `https://tu-saas.co
 
 ---
 
-## Planes Disponibles (`plan`) y Límites (`rateLimitRps`)
+## Cuota Única Incluida (Rate Limiting)
 
-Al registrar tu SaaS puedes especificar el campo `plan` para clasificar el nivel de operación de tu plataforma junto con su cuota de peticiones por segundo (`rateLimitRps`, rango permitido de `1` a `1000` req/s):
+No existen múltiples planes ni configuraciones complejas. Toda plataforma SaaS registrada recibe un esquema único con negocios ilimitados y control de tasa para proteger las colas del SRI:
 
-| Plan | Enfoque / Perfil de Uso | Límite `rateLimitRps` Recomendado | Qué permite en el Gateway |
-| :--- | :--- | :--- | :--- |
-| **`STANDARD`** *(por defecto)* | Emprendimientos, SaaS iniciales o integración de un solo negocio | `100` req/s *(default)* | Acceso completo a gestión multi-tenant, carga de `.p12` cifrados AES-256-GCM, firma XAdES-BES, colas BullMQ, webhooks HMAC y hasta 100 peticiones/segundo sostenidas. |
-| **`PRO`** | ERPs en crecimiento y plataformas SaaS con decenas/cientos de negocios | `250` – `500` req/s | Todas las capacidades de `STANDARD` con mayor cuota configurada por segundo en Redis para absorber picos de facturación (ej. cierres de mes o puntos de venta simultáneos). |
-| **`ENTERPRISE`** | Plataformas masivas, cadenas retail o integradores de alto volumen | `500` – `1000` req/s | Todas las capacidades de la API con techo máximo de concurrencia HTTP (hasta `1000` req/s en `rateLimitRps`) y prioridad operativa de integración. |
-
-::: info ¿CÓMO APLICA EL LÍMITE EN TIEMPO DE EJECUCIÓN?
-El campo `plan` identifica el nivel de suscripción o categoría de tu cuenta en la tabla `api_clients`, mientras que el control estricto de tráfico por segundo en Redis (`RateLimitGuard`) aplica exactamente el valor numérico configurado en **`rateLimitRps`** (si no lo envías al registrarte, se asigna `100` req/s automáticamente).
-:::
+| Recurso | Configuración | Comportamiento si se excede |
+| :--- | :--- | :--- |
+| **Negocios Emisores (`Tenants`)** | Sin límite rígido | Registra y administra todos los contribuyentes emisores que necesite tu plataforma. |
+| **Tasa de Peticiones HTTP** | **20 req/s** por plataforma SaaS (Redis) | Si superas las 20 peticiones por segundo, responde `429 Too Many Requests` con `Retry-After: 1`. |
+| **Funcionalidades Incluidas** | Firma XAdES-BES, Clave Módulo 11, Colas BullMQ, RUC Proveedor automático y Webhooks HMAC | 100% incluidas sin restricciones. |
 
 ---
 
@@ -90,8 +80,8 @@ El campo `plan` identifica el nivel de suscripción o categoría de tu cuenta en
   "apiKey": "sri_live_7a9f8b2c4d1e3a5f6b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e",
   "apiKeyHash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
   "webhookUrl": "https://api.facturacloud.io/webhooks/sri",
-  "plan": "PRO",
-  "rateLimitRps": 250,
+  "plan": "DEFAULT",
+  "rateLimitRps": 20,
   "status": "ACTIVE",
   "createdAt": "2026-11-10T16:30:00.000Z",
   "updatedAt": "2026-11-10T16:30:00.000Z"

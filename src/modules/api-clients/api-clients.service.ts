@@ -36,8 +36,8 @@ export class ApiClientsService {
           ruc: dto.ruc,
           apiKeyHash,
           webhookUrl: dto.webhookUrl ?? null,
-          plan: dto.plan ?? 'STANDARD',
-          rateLimitRps: dto.rateLimitRps ?? 100,
+          plan: 'DEFAULT',
+          rateLimitRps: dto.rateLimitRps ?? 20,
           status: 'ACTIVE',
         },
       });

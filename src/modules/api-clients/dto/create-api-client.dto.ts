@@ -6,7 +6,6 @@ import {
   IsInt,
   Min,
   Max,
-  IsIn,
   Length,
   Matches,
 } from 'class-validator';
@@ -33,31 +32,22 @@ export class CreateApiClientDto {
 
   @ApiPropertyOptional({
     example: 'https://api.facturacloud.io/webhooks/sri',
-    description: 'URL de webhook por defecto',
+    description: 'URL de webhook por defecto para notificaciones asíncronas del SRI',
   })
   @IsOptional()
   @IsUrl({ require_tld: false, require_protocol: true })
   webhookUrl?: string;
 
   @ApiPropertyOptional({
-    example: 'STANDARD',
-    enum: ['STANDARD', 'PRO', 'ENTERPRISE'],
-    default: 'STANDARD',
-  })
-  @IsOptional()
-  @IsIn(['STANDARD', 'PRO', 'ENTERPRISE'])
-  plan?: string;
-
-  @ApiPropertyOptional({
-    example: 100,
+    example: 20,
     minimum: 1,
-    maximum: 1000,
-    default: 100,
-    description: 'Límite de peticiones por segundo',
+    maximum: 100,
+    default: 20,
+    description: 'Límite opcional de peticiones por segundo (por defecto 20 req/s)',
   })
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(1000)
+  @Max(100)
   rateLimitRps?: number;
 }

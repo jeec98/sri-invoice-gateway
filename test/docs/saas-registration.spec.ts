@@ -3,6 +3,7 @@ import {
   buildRegistrationEndpoint,
   buildRegistrationPayload,
   isValidProviderRuc,
+  UNIFIED_PLAN_LIMITS,
   validateSaasForm,
   SaasFormInput,
 } from '../../docs/components/utils/saas-registration';
@@ -12,9 +13,11 @@ describe('SaasRegistrationForm utilities', () => {
     name: 'FacturaCloud SaaS',
     ruc: '1790011674001',
     webhookUrl: 'https://api.facturacloud.io/webhooks/sri',
-    plan: 'PRO',
-    rateLimitRps: 250,
   };
+
+  it('should define unified rate limit of 20 req/s', () => {
+    expect(UNIFIED_PLAN_LIMITS.rateLimitRps).toBe(20);
+  });
 
   it('should validate a complete valid SaaS registration input', () => {
     const result = validateSaasForm(validInput);
@@ -40,21 +43,17 @@ describe('SaasRegistrationForm utilities', () => {
     expect(payload).toEqual({
       name: 'FacturaCloud SaaS',
       ruc: '1790011674001',
-      plan: 'PRO',
-      rateLimitRps: 250,
     });
     expect('webhookUrl' in payload).toBe(false);
   });
 
-  it('should reject out-of-range rateLimitRps and invalid webhookUrl', () => {
+  it('should reject invalid webhookUrl format', () => {
     const res = validateSaasForm({
       ...validInput,
       webhookUrl: 'not-a-url',
-      rateLimitRps: 1500,
     });
     expect(res.valid).toBe(false);
     expect(res.errors.webhookUrl).toBeDefined();
-    expect(res.errors.rateLimitRps).toBeDefined();
   });
 
   it('should build clean /v1/api-clients endpoint avoiding double slashes or /v1 duplication', () => {

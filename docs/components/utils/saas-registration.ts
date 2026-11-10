@@ -1,47 +1,17 @@
-export type SaasPlan = 'STANDARD' | 'PRO' | 'ENTERPRISE';
-
-export interface SaasPlanMeta {
-  id: SaasPlan;
-  label: string;
-  recommendedRps: number;
-  summary: string;
-}
-
-export const SAAS_PLANS: Record<SaasPlan, SaasPlanMeta> = {
-  STANDARD: {
-    id: 'STANDARD',
-    label: 'STANDARD (Base)',
-    recommendedRps: 100,
-    summary: 'Ideal para SaaS iniciales o integración de un negocio (100 req/s recomendados).',
-  },
-  PRO: {
-    id: 'PRO',
-    label: 'PRO (Crecimiento)',
-    recommendedRps: 250,
-    summary: 'Para ERPs y plataformas con decenas/cientos de emisores (250–500 req/s).',
-  },
-  ENTERPRISE: {
-    id: 'ENTERPRISE',
-    label: 'ENTERPRISE (Alto Volumen)',
-    recommendedRps: 500,
-    summary: 'Plataformas masivas, retail o integradores de alto tráfico (hasta 1000 req/s).',
-  },
-};
+export const UNIFIED_PLAN_LIMITS = {
+  rateLimitRps: 20,
+} as const;
 
 export interface SaasFormInput {
   name: string;
   ruc: string;
   webhookUrl: string;
-  plan: SaasPlan;
-  rateLimitRps: number;
 }
 
 export interface SaasPayloadDto {
   name: string;
   ruc: string;
   webhookUrl?: string;
-  plan: SaasPlan;
-  rateLimitRps: number;
 }
 
 export interface ValidationResult {
@@ -85,11 +55,6 @@ export function validateSaasForm(input: SaasFormInput): ValidationResult {
     errors.webhookUrl = 'Si indicas un Webhook URL, debe comenzar con https:// o http://.';
   }
 
-  const rps = Number(input.rateLimitRps);
-  if (!Number.isInteger(rps) || rps < 1 || rps > 1000) {
-    errors.rateLimitRps = 'El límite por segundo (rateLimitRps) debe ser un entero entre 1 y 1000.';
-  }
-
   return {
     valid: Object.keys(errors).length === 0,
     errors,
@@ -100,8 +65,6 @@ export function buildRegistrationPayload(input: SaasFormInput): SaasPayloadDto {
   const payload: SaasPayloadDto = {
     name: input.name.trim(),
     ruc: input.ruc.trim(),
-    plan: input.plan,
-    rateLimitRps: Number(input.rateLimitRps),
   };
 
   const cleanWebhook = input.webhookUrl.trim();

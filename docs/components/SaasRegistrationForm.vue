@@ -76,46 +76,20 @@
           </p>
         </div>
 
-        <!-- Plan Selection -->
-        <div class="sr-field">
-          <span class="sr-label">Plan del Integrador SaaS</span>
-          <div class="sr-plan-grid" role="radiogroup" aria-label="Seleccionar plan de servicio">
-            <button
-              v-for="planItem in planOptions"
-              :key="planItem.id"
-              type="button"
-              class="sr-plan-card"
-              :class="{ 'is-selected': form.plan === planItem.id }"
-              :aria-pressed="form.plan === planItem.id"
-              @click="selectPlan(planItem.id)"
-            >
-              <div class="sr-plan-top">
-                <span class="sr-plan-name">{{ planItem.id }}</span>
-                <span class="sr-plan-rps">{{ planItem.recommendedRps }} req/s</span>
-              </div>
-              <p class="sr-plan-desc">{{ planItem.summary }}</p>
-            </button>
-          </div>
-        </div>
-
-        <!-- Rate limit RPS -->
-        <div class="sr-field">
-          <label for="sr-rps" class="sr-label">
-            Límite de Peticiones por Segundo (<code>rateLimitRps</code>)
-          </label>
-          <input
-            id="sr-rps"
-            v-model.number="form.rateLimitRps"
-            type="number"
-            min="1"
-            max="1000"
-            class="sr-input sr-mono sr-input-sm"
-            :class="{ 'is-invalid': fieldErrors.rateLimitRps }"
-          />
-          <p class="sr-hint">Rango permitido: 1 a 1000 peticiones/segundo (aplicado por Redis).</p>
-          <p v-if="fieldErrors.rateLimitRps" class="sr-error-text" role="alert">
-            {{ fieldErrors.rateLimitRps }}
-          </p>
+        <!-- Unified Plan Summary -->
+        <div class="sr-quota-box">
+          <div class="sr-quota-title">Esquema Único de Servicio Incluido</div>
+          <ul class="sr-quota-list">
+            <li>
+              <strong>Multi-Tenant sin tope de negocios</strong>: Registra todos los negocios emisores (<code>Tenants</code>) y certificados <code>.p12</code> de tu SaaS.
+            </li>
+            <li>
+              <strong>Tasa controlada</strong>: Cuota unificada de <strong>{{ UNIFIED_PLAN_LIMITS.rateLimitRps }} req/s</strong> en Redis por plataforma para proteger las colas del SRI.
+            </li>
+            <li>
+              Incluye firma digital <strong>XAdES-BES</strong>, envío asíncrono al <strong>SRI</strong>, inyección automática de <code>RUC Proveedor</code> y <strong>Webhooks HMAC-SHA256</strong>.
+            </li>
+          </ul>
         </div>
 
         <!-- API Error Banner -->
@@ -174,8 +148,10 @@
             <code class="sr-summary-val">{{ createdClient.ruc }}</code>
           </div>
           <div class="sr-summary-item">
-            <span class="sr-summary-label">Plan / Cuota</span>
-            <span class="sr-summary-val">{{ createdClient.plan }} ({{ createdClient.rateLimitRps }} req/s)</span>
+            <span class="sr-summary-label">Rate Limit Asignado</span>
+            <span class="sr-summary-val">
+              {{ UNIFIED_PLAN_LIMITS.rateLimitRps }} req/s (Redis)
+            </span>
           </div>
         </div>
 
@@ -206,9 +182,8 @@ import {
   buildRegistrationEndpoint,
   buildRegistrationPayload,
   normalizeBaseUrl,
-  SAAS_PLANS,
   SaasFormInput,
-  SaasPlan,
+  UNIFIED_PLAN_LIMITS,
   validateSaasForm,
 } from './utils/saas-registration';
 
@@ -218,8 +193,6 @@ interface CreatedApiClientResponse {
   ruc: string | null;
   apiKey: string;
   webhookUrl: string | null;
-  plan: string;
-  rateLimitRps: number;
   status: string;
 }
 
@@ -228,14 +201,10 @@ const configuredApiUrl =
     ? normalizeBaseUrl(String(import.meta.env.VITE_API_BASE_URL))
     : '';
 
-const planOptions = Object.values(SAAS_PLANS);
-
 const form = reactive<SaasFormInput>({
   name: '',
   ruc: '',
   webhookUrl: '',
-  plan: 'STANDARD',
-  rateLimitRps: 100,
 });
 
 const fieldErrors = ref<Partial<Record<keyof SaasFormInput, string>>>({});
@@ -262,17 +231,10 @@ const cleanBaseForSnippet = computed(() => {
   return base.endsWith('/v1') ? base.slice(0, -3) : base;
 });
 
-function selectPlan(planId: SaasPlan) {
-  form.plan = planId;
-  form.rateLimitRps = SAAS_PLANS[planId].recommendedRps;
-}
-
 function resetForm() {
   form.name = '';
   form.ruc = '';
   form.webhookUrl = '';
-  form.plan = 'STANDARD';
-  form.rateLimitRps = 100;
   fieldErrors.value = {};
   serverError.value = null;
 }
@@ -448,10 +410,6 @@ async function handleSubmit() {
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.sr-input-sm {
-  max-width: 220px;
-}
-
 .sr-mono {
   font-family: var(--vp-font-family-mono);
 }
@@ -480,57 +438,26 @@ async function handleSubmit() {
   color: var(--color-error, #ef4444);
 }
 
-.sr-plan-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 0.75rem;
-  margin-top: 0.25rem;
-}
-
-.sr-plan-card {
-  text-align: left;
-  padding: 0.85rem;
+.sr-quota-box {
   background-color: var(--vp-c-bg);
-  border: 1.5px solid var(--vp-c-border);
+  border: 1px solid var(--vp-c-brand-1);
   border-radius: var(--radius-md, 8px);
-  cursor: pointer;
-  transition: border-color 0.2s, background-color 0.2s;
+  padding: 0.95rem 1.1rem;
 }
 
-.sr-plan-card:hover {
-  border-color: var(--vp-c-brand-1);
-}
-
-.sr-plan-card.is-selected {
-  border-color: var(--vp-c-brand-1);
-  background-color: var(--vp-c-brand-soft);
-}
-
-.sr-plan-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.35rem;
-}
-
-.sr-plan-name {
+.sr-quota-title {
   font-weight: 700;
-  font-size: 0.88rem;
-  color: var(--vp-c-text-1);
-}
-
-.sr-plan-rps {
-  font-family: var(--vp-font-family-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.9rem;
   color: var(--vp-c-brand-1);
+  margin-bottom: 0.45rem;
 }
 
-.sr-plan-desc {
+.sr-quota-list {
   margin: 0;
-  font-size: 0.78rem;
+  padding-left: 1.2rem;
+  font-size: 0.84rem;
   color: var(--vp-c-text-2);
-  line-height: 1.35;
+  line-height: 1.55;
 }
 
 .sr-actions {
