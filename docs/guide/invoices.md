@@ -1,49 +1,38 @@
-# Emisión Asíncrona de Facturas Electrónicas
+# Emisión de Facturas Electrónicas
 
-El endpoint `POST /v1/tenants/:tenantId/invoices` implementa el patrón de ingestión asíncrona de alta concurrencia. Valida los datos estructurales del comprobante, genera la Clave de Acceso de 49 dígitos, persiste el registro del trabajo y responde en **menos de 200 ms** con el estado HTTP `202 Accepted`.
+El endpoint `POST /v1/tenants/:tenantId/invoices` recibe los datos de la factura en JSON, valida la información, genera automáticamente la **Clave de Acceso de 49 dígitos** y responde en milisegundos con estado `QUEUED`.
+
+Mientras tu app sigue operando normalmente, nuestro servicio se encarga en segundo plano de armar el XML, firmarlo con el `.p12` del negocio, enviarlo al SRI y avisarte por Webhook cuando sea autorizado.
 
 ---
 
-## Contrato de Respuesta Síncrona (<200ms)
+## Enviar una Factura (`POST /v1/tenants/:tenantId/invoices`)
 
-Para evitar bloqueos causados por la congestión de los servidores SOAP del SRI, el gateway nunca espera la autorización síncrona en la petición HTTP inicial:
+Recuerda enviar tu `apiKey` como **Bearer Token** en el encabezado `Authorization`:
 
-```http
-POST /v1/tenants/e2a3c4b5-6789-0123-abcd-ef0123456789/invoices HTTP/1.1
-Host: api.gateway.com
-Authorization: Bearer sri_live_...
-Content-Type: application/json
-
-{
-  "referenceId": "order_uuid_100234",
-  "ambiente": "1",
-  "tipoEmision": "1",
-  "infoTributaria": {
+```bash
+curl -X POST https://tu-api.up.railway.app/v1/tenants/TENANT_ID/invoices \
+  -H "Authorization: Bearer sri_live_tu_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "referenceId": "FAC-2026-100234",
+    "ambiente": "1",
+    "webhookUrl": "https://api.tusaas.com/webhooks/sri",
     "razonSocial": "Corporación Andina de Alimentos S.A.",
+    "nombreComercial": "Andina Market",
     "ruc": "1790011674001",
-    "codDoc": "01",
     "estab": "001",
     "ptoEmi": "001",
     "secuencial": "000000123",
-    "dirMatriz": "Av. República de El Salvador 890, Quito"
-  },
-  "infoFactura": {
-    "fechaEmision": "09/11/2026",
+    "dirMatriz": "Av. República de El Salvador 890, Quito",
+    "fechaEmision": "10/11/2026",
     "dirEstablecimiento": "Av. República de El Salvador 890, Quito",
     "obligadoContabilidad": "SI",
     "tipoIdentificacionComprador": "04",
-    "razonSocialComprador": "Consumidor Final S.A.",
+    "razonSocialComprador": "Cliente Ejemplo S.A.",
     "identificacionComprador": "1792146739001",
     "totalSinImpuestos": 100.00,
     "totalDescuento": 0.00,
-    "totalConImpuestos": [
-      {
-        "codigo": "2",
-        "codigoPorcentaje": "4",
-        "baseImponible": 100.00,
-        "valor": 15.00
-      }
-    ],
     "propina": 0.00,
     "importeTotal": 115.00,
     "moneda": "DOLAR",
@@ -51,81 +40,87 @@ Content-Type: application/json
       {
         "formaPago": "20",
         "total": 115.00,
-        "plazo": 30,
-        "unidadTiempo": "DIAS"
+        "plazo": "30",
+        "unidadTiempo": "dias"
+      }
+    ],
+    "detalles": [
+      {
+        "codigoPrincipal": "SERV-001",
+        "descripcion": "Suscripción Mensual Software",
+        "cantidad": 1,
+        "precioUnitario": 100.00,
+        "descuento": 0.00,
+        "precioTotalSinImpuesto": 100.00,
+        "impuestos": [
+          {
+            "codigo": "2",
+            "codigoPorcentaje": "4",
+            "tarifa": 15,
+            "baseImponible": 100.00,
+            "valor": 15.00
+          }
+        ]
       }
     ]
-  },
-  "detalles": [
-    {
-      "codigoPrincipal": "SERV-001",
-      "descripcion": "Suscripción Cloud Enterprise Plan",
-      "cantidad": 1.00,
-      "precioUnitario": 100.00,
-      "descuento": 0.00,
-      "precioTotalSinImpuesto": 100.00,
-      "impuestos": [
-        {
-          "codigo": "2",
-          "codigoPorcentaje": "4",
-          "tarifa": 15.00,
-          "baseImponible": 100.00,
-          "valor": 15.00
-        }
-      ]
-    }
-  ]
-}
+  }'
 ```
 
-### Respuesta HTTP 202 Accepted
+### Respuesta Inmediata (HTTP 202 Accepted)
 
 ```json
 {
   "success": true,
   "jobId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "referenceId": "order_uuid_100234",
-  "claveAcceso": "0911202601179001167400110010010000001231234567812",
-  "status": "QUEUED",
-  "createdAt": "2026-11-09T18:50:00.000Z"
+  "referenceId": "FAC-2026-100234",
+  "claveAcceso": "1011202601179001167400110010010000001231234567812",
+  "status": "QUEUED"
 }
 ```
 
----
-
-## Tabla de Impuestos SRI (Factura v1.1.0)
-
-Para el impuesto al valor agregado (IVA), el SRI especifica el código de impuesto `"2"` con los siguientes códigos de porcentaje:
-
-| Código Porcentaje (`codigoPorcentaje`) | Descripción del Porcentaje | Tarifa Aplicable | Base Legal / Vigencia |
-| :--- | :--- | :--- | :--- |
-| **`4`** | **IVA 15%** | `15.00%` | Tarifa general vigente (Ley para Enfrentar el Conflicto Armado Interno). |
-| **`5`** | **IVA 5%** | `5.00%` | Materiales de construcción calificados por el SRI. |
-| **`0`** | **IVA 0%** | `0.00%` | Productos de la canasta básica, medicinas y servicios exentos. |
-| **`6`** | **No Objeto de Impuesto** | `0.00%` | Operaciones fuera del hecho generador del IVA. |
-| **`7`** | **Exento de IVA** | `0.00%` | Transferencias legalmente exoneradas. |
+> **Cumplimiento automático SRI (`NAC-DGERCGC26-00000027`)**: No necesitas agregar manualmente tu RUC de proveedor de software en `infoAdicional`. El gateway inyecta automáticamente `<campoAdicional nombre="RUC Proveedor">` con el RUC con el que registraste tu SaaS.
 
 ---
 
-## Catálogo de Formas de Pago
+## Ambientes del SRI
 
-El campo `formaPago` dentro de `infoFactura.pagos` debe utilizar los códigos oficiales de la tabla 24 del SRI:
+| Valor de `ambiente` | Entorno SRI | Cuándo usarlo |
+| :--- | :--- | :--- |
+| **`"1"`** | **Pruebas (Certificación)** | Desarrollo, pruebas con tu SaaS y verificación de XMLs sin validez tributaria. |
+| **`"2"`** | **Producción** | Emisión real de facturas electrónicas válidas ante el SRI. |
 
-| Código | Descripción de la Forma de Pago |
+---
+
+## Códigos de Impuestos IVA (`codigo: "2"`)
+
+| `codigoPorcentaje` | Tarifa | Descripción |
+| :--- | :--- | :--- |
+| **`4`** | `15` | **IVA 15%** (tarifa general vigente) |
+| **`5`** | `5` | **IVA 5%** (materiales de construcción) |
+| **`0`** | `0` | **IVA 0%** (canasta básica, medicinas, servicios exentos) |
+| **`6`** | `0` | No Objeto de Impuesto |
+| **`7`** | `0` | Exento de IVA |
+
+---
+
+## Formas de Pago (`formaPago`)
+
+| Código | Descripción |
 | :--- | :--- |
-| **`01`** | Sin utilización del sistema financiero (Efectivo / Canje) |
+| **`01`** | Sin utilización del sistema financiero (Efectivo) |
 | **`16`** | Tarjeta de débito |
 | **`19`** | Tarjeta de crédito |
-| **`20`** | Otros con utilización del sistema financiero (Transferencia bancaria, QR, pasarela digital) |
+| **`20`** | Otros con utilización del sistema financiero (Transferencia, depósito, pasarela) |
 | **`15`** | Compensación de deudas |
-| **`17`** | Dinero electrónico / Billetera móvil |
+| **`17`** | Dinero electrónico |
 
 ---
 
-## Ciclo de Vida del Trabajo en BullMQ
+## ¿Cómo consultar el estado manualmente?
 
-1. **Encolamiento**: El gateway inserta el registro `InvoiceJob` con estado `QUEUED` y emite el evento en Redis bajo la cola `sri-invoice-queue`.
-2. **Construcción y Firma XML**: El worker construye el XML canónico (`C14N 1.0`), incorpora los datos fiscales y aplica la firma digital `XAdES-BES` utilizando la clave privada RSA-SHA1 del tenant.
-3. **Recepción en SRI**: El XML firmado se envía al servicio SOAP `RecepcionComprobantesOffline`. Si es aceptado, pasa al estado `RECIBIDA`.
-4. **Consulta de Autorización**: Mediante sondeo con retroceso exponencial, se consulta `AutorizacionComprobantesOffline` hasta obtener `AUTORIZADO` o `DEVUELTA`.
-5. **Notificación Webhook**: El resultado final se notifica de inmediato a la URL de webhook registrada por el integrador.
+Además de recibir el resultado automático en tu Webhook, puedes consultar cualquier factura por su `claveAcceso`:
+
+```bash
+curl https://tu-api.up.railway.app/v1/tenants/TENANT_ID/invoices/CLAVE_ACCESO_49_DIGITOS \
+  -H "Authorization: Bearer sri_live_tu_api_key"
+```

@@ -1,10 +1,10 @@
-# Registro del SaaS, Cuota Única y Autenticación
+# Registro del SaaS y Autenticación (API Key)
 
-El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registra tu plataforma SaaS** dentro de `sri-invoice-gateway`. Puedes registrarlo directamente usando el formulario interactivo de abajo, desde Swagger (`/docs`) o con `curl`.
+Antes de registrar negocios o emitir facturas, debes dar de alta tu plataforma SaaS una única vez. Al hacerlo, obtendrás tu **`apiKey`**, que funcionará como tu **Bearer Token** en todas las peticiones a la API.
 
-::: danger REGISTRO ÚNICO POR RUC Y API KEY IRRECUPERABLE
-1. **Un solo registro por RUC de SaaS (`409 Conflict`)**: El RUC de tu plataforma es único en la base de datos. Si intentas registrar el mismo RUC por segunda vez, el gateway rechazará la petición con `409 Conflict` (`API_CLIENT_RUC_EXISTS`).
-2. **Copia tu `apiKey` inmediatamente**: La propiedad `apiKey` (`sri_live_...`) en texto plano se muestra **una única vez** en la respuesta de creación y **no volverá a mostrarse nunca más**. Guárdala en ese instante en tus variables de entorno (`.env`) o gestor de secretos.
+::: danger REGISTRO ÚNICO POR RUC Y CLAVE IRRECUPERABLE
+1. **Un registro por RUC**: Cada RUC de proveedor solo puede registrarse una vez (`409 Conflict` si intentas repetirlo).
+2. **Copia tu `apiKey` al instante**: La clave (`sri_live_...`) solo se muestra una única vez al crear la cuenta. Guárdala en un lugar seguro porque no se puede volver a consultar después.
 :::
 
 ---
@@ -17,9 +17,32 @@ El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registr
 
 ---
 
-## ¿Cómo registrar tu SaaS vía API / cURL?
+## Cómo usar tu API Key (Bearer Token)
 
-Puedes hacerlo desde **Swagger UI** (`https://tu-api.up.railway.app/docs` ➔ `POST /v1/api-clients`) o desde tu consola:
+Una vez que tengas tu `apiKey` (`sri_live_...`), úsala como **Bearer Token** en todos los demás endpoints (registrar negocios, subir certificados `.p12`, emitir o consultar facturas):
+
+* **Si estás probando en Swagger (`/docs`)**:
+  1. Haz clic en el botón **Authorize** (arriba a la derecha).
+  2. Pega tu `apiKey` (`sri_live_...`) en el campo **Value** *(no hace falta escribir la palabra "Bearer", Swagger la añade solo)*.
+  3. Haz clic en **Authorize** y ya podrás probar cualquier endpoint.
+
+* **Si llamas desde tu backend, Postman o `curl`**:
+  Agrega este encabezado en cada petición HTTP:
+  ```http
+  Authorization: Bearer sri_live_tu_clave_aqui
+  ```
+
+Ejemplo para listar tus negocios registrados:
+```bash
+curl https://tu-api.up.railway.app/v1/tenants \
+  -H "Authorization: Bearer sri_live_tu_clave_aqui"
+```
+
+---
+
+## Registro manual vía API (`POST /v1/api-clients`)
+
+Si prefieres registrar tu plataforma desde consola o Postman en lugar de usar el formulario:
 
 ```bash
 curl -X POST https://tu-api.up.railway.app/v1/api-clients \
@@ -31,103 +54,44 @@ curl -X POST https://tu-api.up.railway.app/v1/api-clients \
   }'
 ```
 
-### Campos de Registro (`CreateApiClientDto`)
+### Datos que recibe
 
-| Campo | Requerido | Tipo | Descripción |
-| :--- | :--- | :--- | :--- |
-| **`name`** | **Sí** | `string` | Nombre identificador de tu plataforma SaaS o ERP (ej. `"FacturaCloud SaaS"`). |
-| **`ruc`** | **Sí** | `string` | RUC de 13 dígitos numéricos del proveedor del software/SaaS terminado en `001` (regex: `/^\d{10}001$/`). El gateway inyecta este RUC automáticamente en `<infoAdicional><campoAdicional nombre="RUC Proveedor">...</campoAdicional></infoAdicional>` de todas las facturas emitidas bajo tu plataforma (Resolución SRI **NAC-DGERCGC26-00000027**). |
-| **`webhookUrl`** | No | `string` (URL) | URL HTTPS de tu SaaS donde el gateway enviará las notificaciones automáticas de autorización del SRI. *(Ver sección Webhook abajo).* |
-
----
-
-## ¿Qué es el Webhook (`webhookUrl`) y para qué sirve?
-
-La comunicación con los Web Services SOAP del SRI de Ecuador es lenta y asíncrona (puede tardar entre 2 y 15 segundos o requerir reintentos si el SRI está congestionado).
-
-El **Webhook** es una URL de tu propio servidor (por ejemplo `https://tu-saas.com/api/webhooks/sri`) que le entregas al gateway para que te avise automáticamente apenas termine el proceso:
-
-1. Tu SaaS envía la factura (`POST /v1/tenants/:id/invoices`) y recibe respuesta inmediata en `<200ms` con estado `QUEUED`.
-2. El gateway firma el XML (XAdES-BES) y lo tramita en segundo plano contra el SRI usando colas BullMQ.
-3. En cuanto el SRI responde (`AUTORIZADO`, `DEVUELTA`, `NO_AUTORIZADO` o `FAILED`), el gateway hace un `POST` automático a tu `webhookUrl` con el XML autorizado, número de autorización y firma criptográfica HMAC-SHA256 (`X-SRI-Gateway-Signature`).
-
-**¿Para qué sirve y cómo configurarlo?**
-* Evita que tu SaaS tenga que consultar el estado de cada factura cada segundo (*polling* innecesario).
-* Te permite actualizar el estado de la factura en la base de datos de tu SaaS en tiempo real y enviar el PDF/XML al correo del cliente final apenas el SRI autoriza.
-* **Requisitos para que funcione**: Debe ser una URL **HTTPS pública** (sin redirecciones `301/302`), aceptar `POST` JSON sin sesión de usuario, y responder `200 OK` en menos de **10 segundos**.
-* *(Es opcional al registrar el SaaS porque también puedes enviar un `webhookUrl` específico en cada factura o consultar vía `GET`).* Revisa la **[Guía paso a paso: Cómo configurar tu Webhook](/guide/webhooks#como-configurar-tu-webhook)** y el validador HMAC-SHA256.
-
----
-
-## Cuota Única Incluida (Rate Limiting)
-
-No existen múltiples planes ni configuraciones complejas. Toda plataforma SaaS registrada recibe un esquema único con negocios ilimitados y control de tasa para proteger las colas del SRI:
-
-| Recurso | Configuración | Comportamiento si se excede |
+| Campo | Requerido | Descripción |
 | :--- | :--- | :--- |
-| **Negocios Emisores (`Tenants`)** | Sin límite rígido | Registra y administra todos los contribuyentes emisores que necesite tu plataforma. |
-| **Tasa de Peticiones HTTP** | **20 req/s** por plataforma SaaS (Redis) | Si superas las 20 peticiones por segundo, responde `429 Too Many Requests` con `Retry-After: 1`. |
-| **Funcionalidades Incluidas** | Firma XAdES-BES, Clave Módulo 11, Colas BullMQ, RUC Proveedor automático y Webhooks HMAC | 100% incluidas sin restricciones. |
+| **`name`** | **Sí** | Nombre de tu plataforma o empresa integradora. |
+| **`ruc`** | **Sí** | Tu RUC de 13 dígitos terminado en `001`. Se agregará automáticamente en el XML de todas tus facturas como `RUC Proveedor` para cumplir con la Resolución SRI **NAC-DGERCGC26-00000027**. |
+| **`webhookUrl`** | No | URL pública HTTPS donde quieres recibir el resultado automático cuando el SRI apruebe o rechace una factura. |
 
 ---
 
-## Respuesta de Registro (HTTP 201 Created)
+## ¿Qué es el Webhook (`webhookUrl`) y cómo configurarlo?
 
-```json
-{
-  "id": "a98dfb02-1345-4bb6-981c-6d1234567890",
-  "name": "FacturaCloud SaaS",
-  "ruc": "1790011674001",
-  "apiKey": "sri_live_7a9f8b2c4d1e3a5f6b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e",
-  "apiKeyHash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-  "webhookUrl": "https://api.facturacloud.io/webhooks/sri",
-  "plan": "DEFAULT",
-  "rateLimitRps": 20,
-  "status": "ACTIVE",
-  "createdAt": "2026-11-10T16:30:00.000Z",
-  "updatedAt": "2026-11-10T16:30:00.000Z"
-}
-```
+Como el SRI suele tardar varios segundos en responder, nuestro microservicio no te hace esperar: recibe la factura al instante y, cuando el SRI termina, **te avisa enviando un `POST` a tu servidor**.
 
-> **Recuerda**: Copia el valor de **`apiKey`** (`sri_live_...`) antes de cerrar la pestaña o terminal. El servidor **no guarda** ese valor en texto plano y ningún endpoint te lo volverá a entregar después.
+* **¿Para qué sirve?** Te permite actualizar el estado de la factura en tu sistema apenas sea autorizada sin tener que estar consultando cada segundo.
+* **Requisitos para que funcione**:
+  1. Debe ser una ruta `POST` en una URL **HTTPS pública** (no uses `localhost` en producción).
+  2. La URL no debe hacer redirecciones (`301`/`302`).
+  3. Tu servidor debe responder `200 OK` en menos de 10 segundos.
+
+👉 Revisa la **[Guía paso a paso para configurar tu Webhook](/guide/webhooks#como-configurar-tu-webhook)**.
 
 ---
 
-## Modelo de Seguridad de la API Key
+## Cuota del Servicio
 
-1. **Estructura del Token**:
-   - Prefijo canónico: `sri_live_`
-   - Entropía: 48 caracteres hexadecimales aleatorios criptográficamente seguros generados vía `crypto.randomBytes(24).toString('hex')`.
-2. **Almacenamiento Criptográfico Hashed**:
-   - `sri-invoice-gateway` **NUNCA** almacena la API Key en texto plano en PostgreSQL.
-   - Solo se persiste su digest **SHA-256** (`api_key_hash`):
-     ```typescript
-     const apiKeyHash = crypto.createHash('sha256').update(rawApiKey).digest('hex');
-     ```
-3. **Validación en Tiempo de Petición**:
-   - `ApiKeyGuard` intercepta cada llamada entrante, calcula el hash SHA-256 del token enviado en `Authorization: Bearer <token>` y busca en PostgreSQL:
-     ```sql
-     SELECT id, name, status, plan, rate_limit_rps
-     FROM api_clients
-     WHERE api_key_hash = :hash;
-     ```
+Todas las cuentas operan bajo un esquema único simple y listo para producción:
+* **Negocios (`Tenants`)**: Puedes registrar todos los negocios emisores que necesites bajo tu cuenta SaaS.
+* **Límite de velocidad**: `20` peticiones por segundo por plataforma para mantener estables las colas hacia el SRI.
+* **Incluye**: Firma XAdES-BES, generación de clave de acceso Módulo 11, reintentos automáticos ante el SRI, inyección de `RUC Proveedor` y notificaciones por Webhook.
 
 ---
 
-## Autenticación en Peticiones HTTP
+## Errores comunes de autenticación
 
-Para invocar cualquier endpoint protegido (`/v1/tenants`, `/v1/tenants/:tenantId/certificates`, `/v1/tenants/:tenantId/invoices`), envía la clave en el encabezado `Authorization`:
-
-```bash
-curl -X GET https://tu-api.up.railway.app/v1/tenants \
-  -H "Authorization: Bearer sri_live_7a9f8b2c4d1e3a5f6b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e" \
-  -H "Accept: application/json"
-```
-
-### Códigos de Error Comunes de Autenticación
-
-| Código HTTP | Error Code | Causa |
+| Código HTTP | Error | Qué significa |
 | :--- | :--- | :--- |
-| `401 Unauthorized` | `MISSING_API_KEY` | El encabezado `Authorization: Bearer ...` no fue provisto en la petición. |
-| `401 Unauthorized` | `INVALID_API_KEY` | El token enviado no existe en la base de datos o el hash SHA-256 no coincide. |
-| `401 Unauthorized` | `API_CLIENT_INACTIVE` | La plataforma SaaS asociada a esta API Key no tiene `status = 'ACTIVE'`. |
+| `401 Unauthorized` | `MISSING_API_KEY` | No enviaste el encabezado `Authorization: Bearer <apiKey>`. |
+| `401 Unauthorized` | `INVALID_API_KEY` | La `apiKey` está mal escrita o no existe. |
+| `401 Unauthorized` | `API_CLIENT_INACTIVE` | La cuenta del SaaS está desactivada. |
+| `409 Conflict` | `API_CLIENT_RUC_EXISTS` | Ese RUC ya fue registrado anteriormente. |

@@ -1,6 +1,6 @@
 # Referencia de Endpoints REST (v1)
 
-La API REST de `sri-invoice-gateway` proporciona una interfaz de alto rendimiento para plataformas SaaS integradoras (`saas-api`) que gestionan la emisión masiva de comprobantes electrónicos autorizados por el Servicio de Rentas Internas (SRI) del Ecuador.
+Documentación de todos los endpoints disponibles en `sri-invoice-gateway` para registrar tu plataforma SaaS, dar de alta negocios emisores, subir certificados `.p12` y emitir facturas electrónicas ante el SRI de Ecuador.
 
 ---
 
@@ -10,38 +10,36 @@ La API REST de `sri-invoice-gateway` proporciona una interfaz de alto rendimient
 | Entorno | Base URL |
 | :--- | :--- |
 | **Desarrollo / Local** | `http://localhost:3000` |
-| **Producción** | `https://api.tu-dominio.com` (o el host asignado por la infraestructura) |
+| **Producción** | `https://sri-invoice-gateway-production.up.railway.app` (o el dominio de tu servidor) |
 
-Todos los endpoints descritos a continuación están prefijados con la versión `/v1`.
+Todos los endpoints están prefijados con `/v1`.
 
-### Autenticación & Autorización
-A excepción del endpoint de aprovisionamiento administrativo (`POST /v1/api-clients`), todos los endpoints requieren autenticación mediante un token Bearer en el encabezado HTTP `Authorization`:
+### Autenticación (`apiKey` como Bearer Token)
+Excepto el registro inicial (`POST /v1/api-clients`), todos los endpoints requieren enviar tu **`apiKey`** (`sri_live_...`) como **Bearer Token** en el encabezado `Authorization`:
 
 ```http
 Authorization: Bearer sri_live_e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
-- **Modelo Double-Lock**: El gateway valida en dos niveles:
-  1. **Nivel 1 (`ApiKeyGuard`)**: Comprueba que el Bearer token exista, calcula su hash SHA-256 en memoria y verifica que pertenezca a un `ApiClient` activo.
-  2. **Nivel 2 (`TenantAccessGuard`)**: Valida que el `:tenantId` especificado en la ruta pertenezca inequívocamente al `ApiClient` autenticado (`WHERE id = :tenantId AND api_client_id = :apiClientId AND status = 'ACTIVE'`).
+* **En Swagger (`/docs`)**: Haz clic en el botón **Authorize**, pega tu `apiKey` (`sri_live_...`) y guarda.
+* **Aislamiento automático**: Cada plataforma SaaS solo puede ver y emitir facturas para los negocios (`Tenants`) registrados bajo su propia `apiKey`.
 
-### Encabezados de Respuesta de Rate Limiting
-Cada respuesta HTTP incluye información sobre el consumo de cuota por ventana deslizante en Redis:
-- `X-RateLimit-Limit`: Cuota máxima de peticiones permitidas por segundo (definida por el plan de la plataforma).
-- `X-RateLimit-Remaining`: Peticiones disponibles en la ventana actual.
-- `X-RateLimit-Reset`: Segundos restantes para el reinicio de la ventana.
+### Encabezados de Límite de Tasa
+Cada respuesta incluye tu cuota disponible en la ventana actual (`20` peticiones por segundo):
+- `X-RateLimit-Limit`: Límite máximo por segundo (`20`).
+- `X-RateLimit-Remaining`: Peticiones disponibles en este segundo.
 
 ---
 
 ## 1. POST /v1/api-clients
 
-**Registro de Plataforma SaaS (Provisionamiento Único)**
+**Registro de Plataforma SaaS (Único por RUC)**
 
-Aquí es donde se **registra tu plataforma SaaS** dentro del gateway (puedes ejecutarlo directamente desde **Swagger `/docs`**, Postman o `curl` sin necesitar un portal de registro aparte). Al ejecutarse, genera una API Key maestra criptográfica (`sri_live_<48_hex>`) y almacena su hash SHA-256 en PostgreSQL.
+Registra tu plataforma SaaS dentro del microservicio (puedes hacerlo directamente desde el [formulario web](/guide/provisioning#formulario-de-registro), en **Swagger `/docs`** o con `curl`). Te devuelve una **`apiKey`** (`sri_live_...`) que deberás usar como **Bearer Token** en todos los demás endpoints.
 
 > [!CAUTION]
-> 1. **Solo se puede registrar una única vez por RUC**: El `ruc` de tu plataforma es único en la base de datos. Si intentas registrar nuevamente el mismo RUC, la API responderá con `409 Conflict` (`API_CLIENT_RUC_EXISTS`).
-> 2. **Copia tu `apiKey` inmediatamente**: El valor en texto plano se devuelve **únicamente en esta respuesta y nunca volverá a mostrarse**. Guárdalo de inmediato en tus variables de entorno o gestor de secretos.
+> 1. **Solo se puede registrar una única vez por RUC**: El `ruc` de tu plataforma es único. Si intentas registrar nuevamente el mismo RUC, la API responderá con `409 Conflict` (`API_CLIENT_RUC_EXISTS`).
+> 2. **Copia tu `apiKey` inmediatamente**: El valor en texto plano se devuelve **únicamente en esta respuesta y nunca volverá a mostrarse**. Guárdalo de inmediato en tus variables de entorno.
 
 ### Encabezados de Petición
 | Encabezado | Tipo | Requerido | Descripción |
