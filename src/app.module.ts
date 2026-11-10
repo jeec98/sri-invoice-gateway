@@ -30,7 +30,10 @@ import { QueueModule } from './modules/queue/queue.module';
               port: Number(parsed.port) || 6379,
               username: parsed.username || undefined,
               password: parsed.password || undefined,
-              db: parsed.pathname && parsed.pathname !== '/' ? Number(parsed.pathname.replace('/', '')) || 0 : 0,
+              db:
+                parsed.pathname && parsed.pathname !== '/'
+                  ? Number(parsed.pathname.replace('/', '')) || 0
+                  : 0,
               tls: parsed.protocol === 'rediss:' ? {} : undefined,
             },
           };
@@ -55,4 +58,4 @@ import { QueueModule } from './modules/queue/queue.module';
     QueueModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}
