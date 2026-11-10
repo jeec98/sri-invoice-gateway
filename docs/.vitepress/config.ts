@@ -20,6 +20,7 @@ export default withMermaid(
       logo: '/logo.svg',
       siteTitle: 'SRI Invoice Gateway Docs',
       nav: [
+        { text: 'Registrar SaaS', link: '/guide/provisioning#formulario-de-registro' },
         { text: 'Guía Rápida', link: '/guide/quickstart' },
         { text: 'Arquitectura', link: '/guide/architecture' },
         { text: 'Herramientas', link: '/guide/modulo11' },

@@ -10,7 +10,10 @@ hero:
     alt: SRI Invoice Gateway Logo
   actions:
     - theme: brand
-      text: Comenzar
+      text: Registrar SaaS (API Key)
+      link: /guide/provisioning#formulario-de-registro
+    - theme: alt
+      text: Guía Rápida
       link: /guide/quickstart
     - theme: alt
       text: Ver API

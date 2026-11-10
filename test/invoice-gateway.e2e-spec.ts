@@ -58,6 +58,9 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
   let queueConsumer: InvoiceQueueConsumerType;
 
   // Platform Integrators (SaaS Clients)
+  const clientARuc = '1791111111001';
+  const clientBRuc = '1792222222001';
+  const throttledClientRuc = '1793333333001';
   let apiKeyClientA = '';
   let clientAId = '';
   let apiKeyClientB = '';
@@ -130,12 +133,25 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
     sriSoapClient = app.get(SriSoapClientService);
     queueConsumer = app.get(InvoiceQueueConsumer);
 
-    // Initial database cleanup
+    // Initial database cleanup (by name and RUC to guarantee idempotency across CI runs)
     await prisma.apiClient.deleteMany({
       where: {
-        name: {
-          in: ['E2E SaaS Alpha Platform', 'E2E SaaS Beta Platform', 'E2E SaaS Throttled Platform'],
-        },
+        OR: [
+          {
+            name: {
+              in: [
+                'E2E SaaS Alpha Platform',
+                'E2E SaaS Beta Platform',
+                'E2E SaaS Throttled Platform',
+              ],
+            },
+          },
+          {
+            ruc: {
+              in: [clientARuc, clientBRuc, throttledClientRuc],
+            },
+          },
+        ],
       },
     });
 
@@ -175,13 +191,22 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
     if (prisma) {
       await prisma.apiClient.deleteMany({
         where: {
-          name: {
-            in: [
-              'E2E SaaS Alpha Platform',
-              'E2E SaaS Beta Platform',
-              'E2E SaaS Throttled Platform',
-            ],
-          },
+          OR: [
+            {
+              name: {
+                in: [
+                  'E2E SaaS Alpha Platform',
+                  'E2E SaaS Beta Platform',
+                  'E2E SaaS Throttled Platform',
+                ],
+              },
+            },
+            {
+              ruc: {
+                in: [clientARuc, clientBRuc, throttledClientRuc],
+              },
+            },
+          ],
         },
       });
     }
@@ -200,7 +225,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'E2E SaaS Alpha Platform',
-        ruc: '1799999999001',
+        ruc: clientARuc,
         webhookUrl: `http://127.0.0.1:${webhookPort}/webhooks/sri`,
         plan: 'PRO',
         rateLimitRps: 100,
@@ -228,7 +253,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'E2E SaaS Beta Platform',
-        ruc: '1798888888001',
+        ruc: clientBRuc,
         plan: 'STANDARD',
         rateLimitRps: 100,
       }),
@@ -255,6 +280,18 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
     });
     expect(storedClientA).toBeDefined();
     expect(storedClientA?.id).toBe(clientAId);
+    expect(storedClientA?.ruc).toBe(clientARuc);
+
+    // 1c. Reject duplicate SaaS RUC registration (409 API_CLIENT_RUC_EXISTS)
+    const duplicateRes = await fetch(`${baseUrl}/api-clients`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'E2E SaaS Duplicate RUC',
+        ruc: clientARuc,
+      }),
+    });
+    expect(duplicateRes.status).toBe(409);
   });
 
   it('Step 2: POST /v1/tenants — Register Tenant A under Client A and Tenant B under Client B', async () => {
@@ -687,6 +724,9 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
     expect(finalBody.webhookDelivered).toBe(true);
     expect(finalBody.webhookResponseStatus).toBe(200);
     expect(String(finalBody.authorizedXml)).toContain('<ds:Signature');
+    expect(String(finalBody.authorizedXml)).toContain(
+      `<campoAdicional nombre="RUC Proveedor">${clientARuc}</campoAdicional>`,
+    );
 
     // 7e. Verify HMAC-SHA256 signature received by SaaS Webhook receiver
     const expectedHmac =
@@ -705,7 +745,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'E2E SaaS Throttled Platform',
-        ruc: '1797777777001',
+        ruc: throttledClientRuc,
         plan: 'STANDARD',
         rateLimitRps: 2,
       }),

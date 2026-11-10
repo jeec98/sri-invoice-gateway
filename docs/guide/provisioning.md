@@ -1,6 +1,6 @@
 # Registro del SaaS, Planes y Autenticación
 
-El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registra tu plataforma SaaS** dentro de `sri-invoice-gateway`. No necesitas construir ninguna página o formulario previo: puedes hacer este registro directamente desde la interfaz interactiva de **Swagger (`/docs`)**, Postman o una petición `curl`.
+El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registra tu plataforma SaaS** dentro de `sri-invoice-gateway`. Puedes registrarlo directamente usando el formulario interactivo de abajo, desde Swagger (`/docs`) o con `curl`.
 
 ::: danger REGISTRO ÚNICO POR RUC Y API KEY IRRECUPERABLE
 1. **Un solo registro por RUC de SaaS (`409 Conflict`)**: El RUC de tu plataforma es único en la base de datos. Si intentas registrar el mismo RUC por segunda vez, el gateway rechazará la petición con `409 Conflict` (`API_CLIENT_RUC_EXISTS`).
@@ -9,7 +9,15 @@ El endpoint **`POST /v1/api-clients`** es el punto de entrada donde se **registr
 
 ---
 
-## ¿Cómo registrar tu SaaS?
+## Formulario de Registro Interactivo {#formulario-de-registro}
+
+<ClientOnly>
+  <SaasRegistrationForm />
+</ClientOnly>
+
+---
+
+## ¿Cómo registrar tu SaaS vía API / cURL?
 
 Puedes hacerlo de dos formas:
 - **Desde Swagger UI**: Abre `https://tu-api.up.railway.app/docs`, despliega **`API Clients` ➔ `POST /v1/api-clients`**, haz clic en **Try it out**, pega el JSON y presiona **Execute**.
