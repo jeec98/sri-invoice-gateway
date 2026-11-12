@@ -904,6 +904,27 @@ Valida preventivamente el RUC (Módulo 10/11), la firma `.p12` (contraseña, int
 ### Respuesta (`200 OK`)
 Devuelve `overallStatus: "READY" | "DEGRADED" | "FAILED"` y la bandera `canIssueInvoices: boolean`, junto con el detalle de cada subsistema y los códigos oficiales del SRI.
 
+#### Estructura del Objeto de Incidencia (`issues[]`)
+Cuando se detecta una inconsistencia, se incluye dentro del arreglo `issues` o `summaryIssues`:
+```json
+{
+  "code": "CERTIFICATE_RUC_MISMATCH",
+  "message": "El certificado no coincide con el RUC del emisor (1792147820001).",
+  "severity": "ERROR",
+  "sriOfficialCode": 39,
+  "recommendedAction": "Cargue el archivo .p12 perteneciente al RUC emisor."
+}
+```
+
+Para ver el catálogo exhaustivo de todos los códigos de error (`INVALID_RUC_*`, `CERTIFICATE_*`, `ESTABLISHMENT_*`, `SRI_SOAP_*` y códigos oficiales SRI `2, 10, 37, 39, 40, 42, 46, 56, 63`), consulte la [Guía de Diagnóstico & Salud SRI](/guide/diagnostics#4-catalogo-completo-de-codigos-de-error-y-mensajes-devueltos).
+
+#### Códigos de Error HTTP
+| Código HTTP | Causa | Mensaje Devuelto (`error.message`) |
+| :--- | :--- | :--- |
+| `400 Bad Request` | Parámetros inválidos en el payload (RUC no numérico, contraseña vacía). | `{"statusCode": 400, "message": ["El RUC debe tener exactamente 13 dígitos numéricos."], "error": "Bad Request"}` |
+| `401 Unauthorized` | Encabezado `Authorization: Bearer <key>` ausente o inválido. | `{"statusCode": 401, "message": "MISSING_API_KEY: Debe proporcionar una API Key en el encabezado Authorization: Bearer <key>", "error": "Unauthorized"}` |
+| `429 Too Many Requests` | Exceso del límite de tasa de la plataforma (`20 rps`). | `{"statusCode": 429, "message": "ThrottlerException: Too Many Requests", "error": "Too Many Requests"}` |
+
 ---
 
 ## 7. GET /v1/tenants/:tenantId/diagnostics
@@ -925,6 +946,13 @@ Descifra en memoria el certificado activo de la base de datos del tenant y reali
 ### Respuesta (`200 OK`)
 Retorna el mismo esquema estructurado que el endpoint de pre-vuelo (`DiagnosticResponseDto`).
 
+#### Códigos de Error HTTP
+| Código HTTP | Causa | Mensaje Devuelto (`error.message`) |
+| :--- | :--- | :--- |
+| `401 Unauthorized` | API Key ausente o inválida. | `{"statusCode": 401, "message": "MISSING_API_KEY...", "error": "Unauthorized"}` |
+| `403 Forbidden` | El tenant no pertenece a la plataforma SaaS autenticada. | `{"statusCode": 403, "message": "TENANT_ACCESS_DENIED: No tiene permisos sobre este tenant", "error": "Forbidden"}` |
+| `404 Not Found` | El tenant no existe en el sistema. | `{"statusCode": 404, "message": "Tenant con id \"c3e98124...\" no encontrado.", "error": "Not Found"}` |
+
 ---
 
 ## 8. GET /v1/tenants/:tenantId/eligibility
@@ -932,6 +960,16 @@ Retorna el mismo esquema estructurado que el endpoint de pre-vuelo (`DiagnosticR
 **Consulta Ligera de Elegibilidad de Emisión (<100ms)**
 
 Endpoint ultraligero diseñado para interfaces de usuario y comprobaciones previas en formularios de venta o facturación. Devuelve si el negocio puede emitir (`canIssueInvoices: boolean`), estado técnico y motivos bloqueantes.
+
+### Encabezados de Petición
+| Encabezado | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `Authorization` | `string` | **Sí** | `Bearer <tu_apiKey>` |
+
+### Parámetros de Ruta
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `tenantId` | `string` | UUID del tenant registrado. |
 
 ### Respuesta (`200 OK`)
 ```json
@@ -950,4 +988,11 @@ Endpoint ultraligero diseñado para interfaces de usuario y comprobaciones previ
   "blockers": []
 }
 ```
+
+#### Códigos de Error HTTP
+| Código HTTP | Causa | Mensaje Devuelto (`error.message`) |
+| :--- | :--- | :--- |
+| `401 Unauthorized` | API Key ausente o inválida. | `{"statusCode": 401, "message": "MISSING_API_KEY...", "error": "Unauthorized"}` |
+| `403 Forbidden` | El tenant no pertenece a la plataforma SaaS autenticada. | `{"statusCode": 403, "message": "TENANT_ACCESS_DENIED...", "error": "Forbidden"}` |
+| `404 Not Found` | El tenant no existe en el sistema. | `{"statusCode": 404, "message": "Tenant con id \"...\" no encontrado.", "error": "Not Found"}` |
 

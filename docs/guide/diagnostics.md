@@ -52,25 +52,7 @@ Ecuador clasifica los números de RUC en tres tipos a partir de su tercer dígit
 
 ---
 
-## 3. Matriz de Códigos Oficiales del SRI para RUC y Establecimientos
-
-El Gateway mapea formalmente los códigos de rechazo descritos en las páginas 36 a 39 de la Ficha Técnica SRI v2.34:
-
-| Código SRI | Mensaje Oficial SRI | Causa en Negocio | Acción Recomendada al Usuario |
-| :---: | :--- | :--- | :--- |
-| **`2`** | `RUC del emisor no se encuentra activo` | Contribuyente suspendido o pasivo | Reactivar el RUC en el portal del SRI. |
-| **`10`** | `Establecimiento del emisor clausurado` | Sucursal con sello de clausura del SRI | Regularizar situación del local en el SRI o emitir desde otra serie. |
-| **`37`** | `RUC sin autorización de emisión` | No ha tramitado autorización electrónica | Solicitar autorización de comprobantes electrónicos en SRI en Línea. |
-| **`39`** | `Firma electrónica inválida` | Archivo corrupto o alteración del XML | Regenerar la firma electrónica o revisar integridad del archivo `.p12`. |
-| **`40`** | `Error en el certificado digital` | No cumple estándar X.509 | Adquirir un certificado con una CA acreditada por ARCOTEL. |
-| **`42`** | `Firma revocada o caducada` | Certificado venció o fue anulado | Renovar la firma electrónica ante la entidad certificadora. |
-| **`46`** | `RUC no consta en el padrón del SRI` | RUC inexistente o mal digitado | Verificar los 13 dígitos numéricos del RUC. |
-| **`56`** | `Establecimiento cerrado` | Sucursal dada de baja por el emisor | Reabrir el establecimiento en SRI en Línea o cambiar de serie. |
-| **`63`** | `RUC en estado pasivo` | RUC cancelado definitivamente | Consultar obligaciones pendientes ante el SRI. |
-
----
-
-## 4. Semáforo Global (`overallStatus`)
+## 3. Semáforo Global (`overallStatus`)
 
 El diagnóstico evalúa conjuntamente todos los subsistemas y clasifica el estado en:
 
@@ -84,8 +66,9 @@ El diagnóstico evalúa conjuntamente todos los subsistemas y clasifica el estad
     - Certificado próximo a caducar en $\le 30$ días (`EXPIRING_SOON`).
     - Uno o más establecimientos están cerrados, pero existe al menos uno activo.
     - Intermitencia temporal o timeout en el ping SOAP del SRI (las colas reintentarán asíncronamente).
+    - Estado de revocación no determinable por indisponibilidad de CRL de la CA (`INDETERMINATE`).
 - **🔴 `FAILED` (`canIssueInvoices: false`)**:
-  - Bloqueo inmediato:
+  - Bloqueo inmediato para prevenir rechazos del SRI:
     - RUC matemáticamente inválido.
     - Contraseña incorrecta del archivo `.p12` o archivo corrupto.
     - Certificado digital caducado (`EXPIRED`) o revocado (`REVOKED`).
@@ -94,7 +77,96 @@ El diagnóstico evalúa conjuntamente todos los subsistemas y clasifica el estad
 
 ---
 
-## 5. Ejemplos de Petición y Respuesta
+## 4. Catálogo Completo de Códigos de Error y Mensajes Devueltos
+
+Cada problema detectado se reporta dentro del arreglo `issues[]` con una estructura tipada consistente:
+
+```typescript
+interface DiagnosticIssueDto {
+  code: DiagnosticErrorCode;    // Código único del error (enum)
+  message: string;             // Mensaje explicativo en español
+  severity: 'ERROR' | 'WARNING'; // ERROR (bloquea) o WARNING (advertencia)
+  sriOfficialCode?: number;    // Código numérico oficial del SRI correlacionado
+  recommendedAction?: string;  // Acción correctiva recomendada para el usuario
+}
+```
+
+A continuación se detalla la totalidad de códigos de error generados por el microservicio:
+
+### A. Errores de Validación de RUC
+| Código (`code`) | Severidad | Mensaje Exacto Devuelto (`message`) | Acción Recomendada (`recommendedAction`) |
+| :--- | :---: | :--- | :--- |
+| `INVALID_RUC_LENGTH` | `ERROR` | `El RUC debe tener exactamente 13 dígitos numéricos.` | Asegúrese de ingresar un RUC de 13 dígitos numéricos válidos. |
+| `INVALID_RUC_PROVINCE` | `ERROR` | `El código de provincia "{prov}" no es válido en el territorio ecuatoriano (rango válido: 01-24, o 30).` | Corrija los dos primeros dígitos del RUC correspondientes a la provincia. |
+| `INVALID_RUC_THIRD_DIGIT` | `ERROR` | `El tercer dígito ({d}) no corresponde a ningún tipo de contribuyente válido del SRI (debe ser 0-5 para personas naturales, 6 para públicas, 9 para privadas).` | Verifique el tercer dígito del RUC. |
+| `INVALID_RUC_CHECK_DIGIT` | `ERROR` | `El dígito verificador ({actual}) no coincide con el calculado ({esperado}) según el algoritmo Módulo 10/11.` | Verifique los dígitos base del RUC del contribuyente. |
+| `INVALID_RUC_ESTABLISHMENT_SUFFIX` | `ERROR` | `El sufijo de establecimiento (dígitos 11-13 o 10-13) debe ser mayor o igual a "001" o "0001".` | Asegúrese de que el RUC termine en 001 o en el número de sucursal asignado. |
+
+### B. Errores Criptográficos del Certificado Digital `.p12`
+| Código (`code`) | Severidad | Mensaje Exacto Devuelto (`message`) | Código SRI | Acción Recomendada (`recommendedAction`) |
+| :--- | :---: | :--- | :---: | :--- |
+| `CERTIFICATE_EMPTY` | `ERROR` | `El archivo .p12 está vacío o no fue suministrado.` | `40` | Cargue un archivo PKCS#12 (.p12 o .pfx) válido. |
+| `CERTIFICATE_INVALID_PASSWORD` | `ERROR` | `No se pudo abrir el archivo .p12 con la contraseña suministrada.` | `40` | Verifique la contraseña de su firma electrónica. |
+| `CERTIFICATE_PRIVATE_KEY_NOT_FOUND` | `ERROR` | `No se encontró la clave privada RSA en el archivo .p12.` | `40` | Asegúrese de exportar el certificado con su clave privada. |
+| `CERTIFICATE_NOT_FOUND` | `ERROR` | `No se encontró ningún certificado X.509 en el archivo .p12.` | `40` | Exporte un archivo .p12 válido que contenga el certificado X.509. |
+| `CERTIFICATE_KEY_MISMATCH` | `ERROR` | `La clave privada y el certificado X.509 no se corresponden criptográficamente.` | `39` | Vuelva a exportar el certificado y la clave privada asociados. |
+| `CERTIFICATE_EXPIRED` | `ERROR` | `El certificado caducó el {fecha_iso}.` | `42` | Renueve su firma electrónica con su entidad certificadora. |
+| `CERTIFICATE_NOT_YET_VALID` | `ERROR` | `El certificado aún no entra en vigencia ({fecha_iso}).` | `40` | Espere a la fecha de inicio de vigencia del certificado. |
+| `CERTIFICATE_EXPIRING_SOON` | `WARNING` | `El certificado caducará pronto (en {dias} días).` | - | Inicie el trámite de renovación de su firma electrónica. |
+| `CERTIFICATE_UNRECOGNIZED_CA` | `WARNING` | `La entidad emisora "{issuer}" no está en el listado de CAs acreditadas por ARCOTEL / SRI.` | `40` | Asegúrese de adquirir una firma emitida por una entidad certificadora acreditada en Ecuador. |
+| `CERTIFICATE_RUC_MISMATCH` | `ERROR` | `El certificado no coincide con el RUC del emisor ({ruc_esperado}).` | `39` | Cargue el archivo .p12 perteneciente al RUC emisor. |
+| `CERTIFICATE_REVOKED` | `ERROR` | `El certificado (serie {serial}) figura como REVOCADO.` | `42` | Adquiera una nueva firma electrónica ya que la actual fue revocada. |
+| `CERTIFICATE_REVOCATION_INDETERMINATE` | `WARNING` | `No se pudo comprobar el estado de revocación CRL/OCSP por indisponibilidad de red de la CA.` | - | Se permite la emisión con precaución; valide el estado de la CA. |
+
+### C. Errores de Establecimientos y Puntos de Emisión
+| Código (`code`) | Severidad | Mensaje Exacto Devuelto (`message`) | Código SRI | Acción Recomendada (`recommendedAction`) |
+| :--- | :---: | :--- | :---: | :--- |
+| `ESTABLISHMENT_INVALID_CODE_FORMAT` | `ERROR` | `Código de establecimiento "{codigo}" debe tener exactamente 3 dígitos numéricos.` | - | Ajuste el código de establecimiento a formato de 3 dígitos (ej. 001). |
+| `ESTABLISHMENT_INVALID_POINT_FORMAT` | `ERROR` | `Código de punto de emisión "{punto}" debe tener exactamente 3 dígitos numéricos.` | - | Ajuste el punto de emisión a formato de 3 dígitos (ej. 001). |
+| `ESTABLISHMENT_CLOSED` | `WARNING` | `El establecimiento {codigo}-{punto} se encuentra marcado como cerrado o inactivo.` | `56` | Reactive la sucursal en el portal del SRI para habilitar la emisión. |
+| `ESTABLISHMENT_SHUTDOWN` | `ERROR` | `El establecimiento se encuentra clausurado por la autoridad tributaria.` | `10` | Acuda al SRI para levantar la clausura o cambie de sucursal. |
+
+### D. Errores de Conectividad con el SRI (SOAP)
+| Código (`code`) | Severidad | Mensaje Exacto Devuelto (`message`) | Acción Recomendada (`recommendedAction`) |
+| :--- | :---: | :--- | :--- |
+| `SRI_SOAP_TIMEOUT` | `WARNING` | `Tiempo de espera agotado al conectar con el SRI ({url}) tras {ms}ms.` | Espere unos minutos y reintente; el SRI puede estar experimentando alta concurrencia. |
+| `SRI_SOAP_UNREACHABLE` | `WARNING` | `No se pudo establecer conexión con el SRI ({url}): {detalle}` | Verifique si los servicios del SRI se encuentran en mantenimiento programado. |
+
+---
+
+## 5. Matriz de Códigos Oficiales de Rechazo SRI (Ficha Técnica v2.34)
+
+Cuando el SRI procesa un comprobante o se evalúan códigos tributarios oficiales, se devuelven los siguientes identificadores:
+
+| Código SRI | Constante Interna | Mensaje Oficial SRI | Acción Operativa |
+| :---: | :--- | :--- | :--- |
+| **`2`** | `SRI_OFFICIAL_2_RUC_INACTIVO` | `RUC del emisor se encuentra NO ACTIVO en la base tributaria del SRI.` | Reactivar el RUC en el portal del SRI antes de emitir. |
+| **`10`** | `SRI_OFFICIAL_10_ESTABLECIMIENTO_CLAUSURADO` | `El establecimiento del emisor se encuentra CLAUSURADO por el SRI.` | Regularizar la clausura ante el SRI o emitir desde otra serie. |
+| **`37`** | `SRI_OFFICIAL_37_RUC_NO_AUTORIZADO` | `El RUC no cuenta con autorización para emitir comprobantes electrónicos.` | Solicitar autorización de facturación electrónica en SRI en Línea. |
+| **`39`** | `SRI_OFFICIAL_39_FIRMA_INVALIDA` | `Firma electrónica inválida o no corresponde al estándar XAdES-BES.` | Verificar la integridad del archivo `.p12` y regenerar la firma. |
+| **`40`** | `SRI_OFFICIAL_40_ERROR_CERTIFICADO` | `Error en la estructura del certificado digital (no cumple con X.509 estándar).` | Adquirir o renovar el certificado con una CA acreditada. |
+| **`42`** | `SRI_OFFICIAL_42_FIRMA_REVOCADA_O_CADUCADA` | `La firma electrónica se encuentra revocada por la CA o ha caducado.` | Renovar la firma electrónica ante una entidad acreditada por ARCOTEL. |
+| **`46`** | `SRI_OFFICIAL_46_RUC_NO_EXISTE` | `El número de RUC no consta en el padrón del SRI.` | Verificar los 13 dígitos numéricos otorgados por el SRI. |
+| **`56`** | `SRI_OFFICIAL_56_ESTABLECIMIENTO_CERRADO` | `El establecimiento del emisor se encuentra CERRADO o dado de baja.` | Reabrir el establecimiento en SRI en Línea o cambiar de serie. |
+| **`63`** | `SRI_OFFICIAL_63_RUC_PASIVO` | `El RUC del emisor se encuentra en estado pasivo o suspendido definitivamente.` | Regularizar obligaciones tributarias para reactivar el RUC. |
+
+---
+
+## 6. Respuestas HTTP Estándar de la API (Errores HTTP)
+
+Además del cuerpo estructurado del diagnóstico (`issues[]`), los endpoints pueden responder con los siguientes códigos de estado HTTP estándar:
+
+| Código HTTP | Causa | Formato del `error.message` |
+| :---: | :--- | :--- |
+| **`400 Bad Request`** | Parámetros inválidos en el cuerpo (validación de DTO). | `{"statusCode": 400, "message": ["El RUC debe tener exactamente 13 dígitos numéricos."], "error": "Bad Request"}` |
+| **`401 Unauthorized`** | Encabezado `Authorization: Bearer <token>` ausente o inválido. | `{"statusCode": 401, "message": "MISSING_API_KEY: Debe proporcionar una API Key válida", "error": "Unauthorized"}` |
+| **`403 Forbidden`** | La plataforma SaaS autenticada no tiene acceso al tenant solicitado. | `{"statusCode": 403, "message": "TENANT_ACCESS_DENIED: No tiene permisos sobre este tenant", "error": "Forbidden"}` |
+| **`404 Not Found`** | El tenant solicitado no existe bajo la cuenta del cliente SaaS. | `{"statusCode": 404, "message": "Tenant con id \"...\" no encontrado.", "error": "Not Found"}` |
+| **`429 Too Many Requests`** | Se excedió el límite de peticiones por segundo (`20 rps`). | `{"statusCode": 429, "message": "ThrottlerException: Too Many Requests", "error": "Too Many Requests"}` |
+
+---
+
+## 7. Ejemplos de Petición y Respuesta
 
 ### Petición Pre-vuelo (Stateless JSON)
 ```bash
@@ -196,4 +268,3 @@ curl -X POST https://sri-gateway.tu-dominio.com/v1/diagnostics/verify-setup \
   ]
 }
 ```
-
