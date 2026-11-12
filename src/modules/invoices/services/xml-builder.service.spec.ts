@@ -269,13 +269,18 @@ describe('XmlBuilderService', () => {
     expect(xml).toContain(`<claveAcceso>${claveAcceso}</claveAcceso>`);
     expect(xml).toContain('<agenteRetencion>1</agenteRetencion>');
     expect(xml).toContain('<periodoFiscal>11/2026</periodoFiscal>');
-    expect(xml).toContain('<razonSocialSujetoRetenido>ACEROS &amp; PERFILES S.A.</razonSocialSujetoRetenido>');
+    expect(xml).toContain(
+      '<razonSocialSujetoRetenido>ACEROS &amp; PERFILES S.A.</razonSocialSujetoRetenido>',
+    );
 
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
     const docsSustento = xpath.select('//docsSustento/docSustento', doc) as Node[];
     expect(docsSustento.length).toBe(1);
 
-    const retenciones = xpath.select('//docsSustento/docSustento/retenciones/retencion', doc) as Node[];
+    const retenciones = xpath.select(
+      '//docsSustento/docSustento/retenciones/retencion',
+      doc,
+    ) as Node[];
     expect(retenciones.length).toBe(2);
     expect(xml).toContain('<codigoRetencion>312</codigoRetencion>');
     expect(xml).toContain('<porcentajeRetener>2.00</porcentajeRetener>');

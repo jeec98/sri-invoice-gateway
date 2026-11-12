@@ -30,11 +30,7 @@ export class InvoicesService {
     return this.createInvoice(tenant, dto, apiClient);
   }
 
-  async createRetention(
-    tenant: Tenant,
-    dto: CreateRetentionDto,
-    apiClient?: ApiClient | null,
-  ) {
+  async createRetention(tenant: Tenant, dto: CreateRetentionDto, apiClient?: ApiClient | null) {
     return this.enqueueElectronicDocument(tenant, dto, '07', apiClient);
   }
 

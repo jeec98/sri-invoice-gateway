@@ -240,8 +240,12 @@ export class XmlBuilderService {
         `      <codDocSustento>${this.escapeXml(doc.codDocSustento || '01')}</codDocSustento>`,
       );
       lines.push(`      <numDocSustento>${this.escapeXml(numDocClean)}</numDocSustento>`);
-      lines.push(`      <fechaEmisionDocSustento>${this.escapeXml(fechaDoc)}</fechaEmisionDocSustento>`);
-      lines.push(`      <fechaRegistroContable>${this.escapeXml(fechaCont)}</fechaRegistroContable>`);
+      lines.push(
+        `      <fechaEmisionDocSustento>${this.escapeXml(fechaDoc)}</fechaEmisionDocSustento>`,
+      );
+      lines.push(
+        `      <fechaRegistroContable>${this.escapeXml(fechaCont)}</fechaRegistroContable>`,
+      );
       if (doc.numAutDocSustento) {
         lines.push(
           `      <numAutDocSustento>${this.escapeXml(doc.numAutDocSustento)}</numAutDocSustento>`,
@@ -262,9 +266,13 @@ export class XmlBuilderService {
         lines.push(
           `          <codigoPorcentaje>${this.escapeXml(imp.codigoPorcentaje)}</codigoPorcentaje>`,
         );
-        lines.push(`          <baseImponible>${this.formatAmount(imp.baseImponible)}</baseImponible>`);
+        lines.push(
+          `          <baseImponible>${this.formatAmount(imp.baseImponible)}</baseImponible>`,
+        );
         lines.push(`          <tarifa>${this.formatAmount(imp.tarifa)}</tarifa>`);
-        lines.push(`          <valorImpuesto>${this.formatAmount(imp.valorImpuesto)}</valorImpuesto>`);
+        lines.push(
+          `          <valorImpuesto>${this.formatAmount(imp.valorImpuesto)}</valorImpuesto>`,
+        );
         lines.push('        </impuestoDocSustento>');
       }
       lines.push('      </impuestosDocSustento>');
@@ -276,11 +284,15 @@ export class XmlBuilderService {
         lines.push(
           `          <codigoRetencion>${this.escapeXml(ret.codigoRetencion)}</codigoRetencion>`,
         );
-        lines.push(`          <baseImponible>${this.formatAmount(ret.baseImponible)}</baseImponible>`);
+        lines.push(
+          `          <baseImponible>${this.formatAmount(ret.baseImponible)}</baseImponible>`,
+        );
         lines.push(
           `          <porcentajeRetener>${this.formatAmount(ret.porcentajeRetener)}</porcentajeRetener>`,
         );
-        lines.push(`          <valorRetenido>${this.formatAmount(ret.valorRetenido)}</valorRetenido>`);
+        lines.push(
+          `          <valorRetenido>${this.formatAmount(ret.valorRetenido)}</valorRetenido>`,
+        );
         lines.push('        </retencion>');
       }
       lines.push('      </retenciones>');
@@ -326,7 +338,9 @@ export class XmlBuilderService {
     lines.push('    <tipoEmision>1</tipoEmision>');
     lines.push(`    <razonSocial>${this.escapeXml(params.razonSocial)}</razonSocial>`);
     if (params.nombreComercial) {
-      lines.push(`    <nombreComercial>${this.escapeXml(params.nombreComercial)}</nombreComercial>`);
+      lines.push(
+        `    <nombreComercial>${this.escapeXml(params.nombreComercial)}</nombreComercial>`,
+      );
     }
     lines.push(`    <ruc>${this.escapeXml(params.ruc)}</ruc>`);
     lines.push(`    <claveAcceso>${this.escapeXml(params.claveAcceso)}</claveAcceso>`);
@@ -336,7 +350,9 @@ export class XmlBuilderService {
     lines.push(`    <secuencial>${this.escapeXml(params.secuencial)}</secuencial>`);
     lines.push(`    <dirMatriz>${this.escapeXml(params.dirMatriz)}</dirMatriz>`);
     if (params.agenteRetencion) {
-      lines.push(`    <agenteRetencion>${this.escapeXml(params.agenteRetencion)}</agenteRetencion>`);
+      lines.push(
+        `    <agenteRetencion>${this.escapeXml(params.agenteRetencion)}</agenteRetencion>`,
+      );
     }
     if (params.contribuyenteRimpe) {
       lines.push(
