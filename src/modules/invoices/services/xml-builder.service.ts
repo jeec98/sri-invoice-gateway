@@ -161,178 +161,196 @@ export class XmlBuilderService {
       }
     }
 
-        this.appendInfoAdicionalLines(lines, infoAdicional);
+    this.appendInfoAdicionalLines(lines, infoAdicional);
 
-        lines.push('</factura>');
-        return lines.join('\n');
+    lines.push('</factura>');
+    return lines.join('\n');
+  }
+
+  /**
+   * Builds the canonical UTF-8 XML for Ecuadorian SRI Electronic Withholding Receipt
+   * `<comprobanteRetencion id="comprobante" version="2.0.0">` (`codDoc = '07'`).
+   */
+  buildRetencionXml(
+    dto: CreateRetentionDto,
+    claveAcceso: string,
+    providerRuc?: string | null,
+  ): string {
+    const estab = dto.estab.trim().padStart(3, '0');
+    const ptoEmi = dto.ptoEmi.trim().padStart(3, '0');
+    const secuencial = dto.secuencial.trim().padStart(9, '0');
+    const fechaEmision = this.normalizeFechaToDdMmYyyySlash(dto.fechaEmision);
+    const obligadoContabilidad = dto.obligadoContabilidad || 'SI';
+
+    const lines: string[] = [];
+    lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+    lines.push('<comprobanteRetencion id="comprobante" version="2.0.0">');
+
+    // 1. <infoTributaria>
+    this.appendInfoTributariaLines(lines, {
+      ambiente: dto.ambiente,
+      razonSocial: dto.razonSocial,
+      nombreComercial: dto.nombreComercial,
+      ruc: dto.ruc,
+      claveAcceso,
+      codDoc: '07',
+      estab,
+      ptoEmi,
+      secuencial,
+      dirMatriz: dto.dirMatriz,
+      agenteRetencion: dto.agenteRetencion,
+      contribuyenteRimpe: dto.contribuyenteRimpe,
+    });
+
+    // 2. <infoCompRetencion>
+    lines.push('  <infoCompRetencion>');
+    lines.push(`    <fechaEmision>${this.escapeXml(fechaEmision)}</fechaEmision>`);
+    lines.push(
+      `    <dirEstablecimiento>${this.escapeXml(dto.dirEstablecimiento)}</dirEstablecimiento>`,
+    );
+    if (dto.contribuyenteEspecial) {
+      lines.push(
+        `    <contribuyenteEspecial>${this.escapeXml(dto.contribuyenteEspecial)}</contribuyenteEspecial>`,
+      );
+    }
+    lines.push(
+      `    <obligadoContabilidad>${this.escapeXml(obligadoContabilidad)}</obligadoContabilidad>`,
+    );
+    lines.push(
+      `    <tipoIdentificacionSujetoRetenido>${this.escapeXml(dto.tipoIdentificacionSujetoRetenido)}</tipoIdentificacionSujetoRetenido>`,
+    );
+    lines.push(`    <parteRel>${this.escapeXml(dto.parteRel || 'NO')}</parteRel>`);
+    lines.push(
+      `    <razonSocialSujetoRetenido>${this.escapeXml(dto.razonSocialSujetoRetenido)}</razonSocialSujetoRetenido>`,
+    );
+    lines.push(
+      `    <identificacionSujetoRetenido>${this.escapeXml(dto.identificacionSujetoRetenido)}</identificacionSujetoRetenido>`,
+    );
+    lines.push(`    <periodoFiscal>${this.escapeXml(dto.periodoFiscal)}</periodoFiscal>`);
+    lines.push('  </infoCompRetencion>');
+
+    // 3. <docsSustento>
+    lines.push('  <docsSustento>');
+    for (const doc of dto.docsSustento) {
+      const fechaDoc = this.normalizeFechaToDdMmYyyySlash(doc.fechaEmisionDocSustento);
+      const fechaCont = this.normalizeFechaToDdMmYyyySlash(
+        doc.fechaRegistroContable || doc.fechaEmisionDocSustento,
+      );
+      const numDocClean = doc.numDocSustento.replaceAll('-', '').trim().padStart(15, '0');
+
+      lines.push('    <docSustento>');
+      lines.push(`      <codSustento>${this.escapeXml(doc.codSustento || '01')}</codSustento>`);
+      lines.push(
+        `      <codDocSustento>${this.escapeXml(doc.codDocSustento || '01')}</codDocSustento>`,
+      );
+      lines.push(`      <numDocSustento>${this.escapeXml(numDocClean)}</numDocSustento>`);
+      lines.push(
+        `      <fechaEmisionDocSustento>${this.escapeXml(fechaDoc)}</fechaEmisionDocSustento>`,
+      );
+      lines.push(
+        `      <fechaRegistroContable>${this.escapeXml(fechaCont)}</fechaRegistroContable>`,
+      );
+      if (doc.numAutDocSustento) {
+        lines.push(
+          `      <numAutDocSustento>${this.escapeXml(doc.numAutDocSustento)}</numAutDocSustento>`,
+        );
       }
+      lines.push(`      <pagoLocExt>${this.escapeXml(doc.pagoLocExt || '01')}</pagoLocExt>`);
+      lines.push(
+        `      <totalSinImpuestos>${this.formatAmount(doc.totalSinImpuestos)}</totalSinImpuestos>`,
+      );
+      lines.push(`      <importeTotal>${this.formatAmount(doc.importeTotal)}</importeTotal>`);
 
-      /**
-       * Builds the canonical UTF-8 XML for Ecuadorian SRI Electronic Withholding Receipt
-       * `<comprobanteRetencion id="comprobante" version="2.0.0">` (`codDoc = '07'`).
-       */
-      buildRetencionXml(dto: CreateRetentionDto, claveAcceso: string): string {
-        const estab = dto.estab.trim().padStart(3, '0');
-        const ptoEmi = dto.ptoEmi.trim().padStart(3, '0');
-        const secuencial = dto.secuencial.trim().padStart(9, '0');
-        const fechaEmision = this.normalizeFechaToDdMmYyyySlash(dto.fechaEmision);
-        const obligadoContabilidad = dto.obligadoContabilidad || 'SI';
+      lines.push('      <impuestosDocSustento>');
+      for (const imp of doc.impuestosDocSustento) {
+        lines.push('        <impuestoDocSustento>');
+        lines.push(
+          `          <codImpuestoDocSustento>${this.escapeXml(imp.codImpuestoDocSustento)}</codImpuestoDocSustento>`,
+        );
+        lines.push(
+          `          <codigoPorcentaje>${this.escapeXml(imp.codigoPorcentaje)}</codigoPorcentaje>`,
+        );
+        lines.push(
+          `          <baseImponible>${this.formatAmount(imp.baseImponible)}</baseImponible>`,
+        );
+        lines.push(`          <tarifa>${this.formatAmount(imp.tarifa)}</tarifa>`);
+        lines.push(
+          `          <valorImpuesto>${this.formatAmount(imp.valorImpuesto)}</valorImpuesto>`,
+        );
+        lines.push('        </impuestoDocSustento>');
+      }
+      lines.push('      </impuestosDocSustento>');
 
-        const lines: string[] = [];
-        lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-        lines.push('<comprobanteRetencion id="comprobante" version="2.0.0">');
+      lines.push('      <retenciones>');
+      for (const ret of doc.retenciones) {
+        lines.push('        <retencion>');
+        lines.push(`          <codigo>${this.escapeXml(ret.codigo)}</codigo>`);
+        lines.push(
+          `          <codigoRetencion>${this.escapeXml(ret.codigoRetencion)}</codigoRetencion>`,
+        );
+        lines.push(
+          `          <baseImponible>${this.formatAmount(ret.baseImponible)}</baseImponible>`,
+        );
+        lines.push(
+          `          <porcentajeRetener>${this.formatAmount(ret.porcentajeRetener)}</porcentajeRetener>`,
+        );
+        lines.push(
+          `          <valorRetenido>${this.formatAmount(ret.valorRetenido)}</valorRetenido>`,
+        );
+        lines.push('        </retencion>');
+      }
+      lines.push('      </retenciones>');
 
-        // 1. <infoTributaria>
-        this.appendInfoTributariaLines(lines, {
-          ambiente: dto.ambiente,
-          razonSocial: dto.razonSocial,
-          nombreComercial: dto.nombreComercial,
-          ruc: dto.ruc,
-          claveAcceso,
-          codDoc: '07',
-          estab,
-          ptoEmi,
-          secuencial,
-          dirMatriz: dto.dirMatriz,
-          agenteRetencion: dto.agenteRetencion,
-          contribuyenteRimpe: dto.contribuyenteRimpe,
+      lines.push('      <pagos>');
+      for (const pago of doc.pagos) {
+        lines.push('        <pago>');
+        lines.push(`          <formaPago>${this.escapeXml(pago.formaPago)}</formaPago>`);
+        lines.push(`          <total>${this.formatAmount(pago.total)}</total>`);
+        lines.push('        </pago>');
+      }
+      lines.push('      </pagos>');
+      lines.push('    </docSustento>');
+    }
+    lines.push('  </docsSustento>');
+
+    // 4. <infoAdicional>
+    const infoAdicional = [...(dto.infoAdicional ?? [])];
+    const cleanProviderRuc = providerRuc?.trim();
+    if (cleanProviderRuc) {
+      const hasRucProveedor = infoAdicional.some(
+        (campo) => campo.nombre.trim().toLowerCase() === 'ruc proveedor',
+      );
+      if (!hasRucProveedor) {
+        infoAdicional.push({
+          nombre: 'RUC Proveedor',
+          valor: cleanProviderRuc,
         });
-
-        // 2. <infoCompRetencion>
-        lines.push('  <infoCompRetencion>');
-        lines.push(`    <fechaEmision>${this.escapeXml(fechaEmision)}</fechaEmision>`);
-        lines.push(
-          `    <dirEstablecimiento>${this.escapeXml(dto.dirEstablecimiento)}</dirEstablecimiento>`,
-        );
-        if (dto.contribuyenteEspecial) {
-          lines.push(
-            `    <contribuyenteEspecial>${this.escapeXml(dto.contribuyenteEspecial)}</contribuyenteEspecial>`,
-          );
-        }
-        lines.push(
-          `    <obligadoContabilidad>${this.escapeXml(obligadoContabilidad)}</obligadoContabilidad>`,
-        );
-        lines.push(
-          `    <tipoIdentificacionSujetoRetenido>${this.escapeXml(dto.tipoIdentificacionSujetoRetenido)}</tipoIdentificacionSujetoRetenido>`,
-        );
-        lines.push(`    <parteRel>${this.escapeXml(dto.parteRel || 'NO')}</parteRel>`);
-        lines.push(
-          `    <razonSocialSujetoRetenido>${this.escapeXml(dto.razonSocialSujetoRetenido)}</razonSocialSujetoRetenido>`,
-        );
-        lines.push(
-          `    <identificacionSujetoRetenido>${this.escapeXml(dto.identificacionSujetoRetenido)}</identificacionSujetoRetenido>`,
-        );
-        lines.push(`    <periodoFiscal>${this.escapeXml(dto.periodoFiscal)}</periodoFiscal>`);
-        lines.push('  </infoCompRetencion>');
-
-        // 3. <docsSustento>
-        lines.push('  <docsSustento>');
-        for (const doc of dto.docsSustento) {
-          const fechaDoc = this.normalizeFechaToDdMmYyyySlash(doc.fechaEmisionDocSustento);
-          const fechaCont = this.normalizeFechaToDdMmYyyySlash(
-            doc.fechaRegistroContable || doc.fechaEmisionDocSustento,
-          );
-          const numDocClean = doc.numDocSustento.replaceAll('-', '').trim().padStart(15, '0');
-
-          lines.push('    <docSustento>');
-          lines.push(`      <codSustento>${this.escapeXml(doc.codSustento || '01')}</codSustento>`);
-          lines.push(
-            `      <codDocSustento>${this.escapeXml(doc.codDocSustento || '01')}</codDocSustento>`,
-          );
-          lines.push(`      <numDocSustento>${this.escapeXml(numDocClean)}</numDocSustento>`);
-          lines.push(
-            `      <fechaEmisionDocSustento>${this.escapeXml(fechaDoc)}</fechaEmisionDocSustento>`,
-          );
-          lines.push(
-            `      <fechaRegistroContable>${this.escapeXml(fechaCont)}</fechaRegistroContable>`,
-          );
-          if (doc.numAutDocSustento) {
-            lines.push(
-              `      <numAutDocSustento>${this.escapeXml(doc.numAutDocSustento)}</numAutDocSustento>`,
-            );
-          }
-          lines.push(`      <pagoLocExt>${this.escapeXml(doc.pagoLocExt || '01')}</pagoLocExt>`);
-          lines.push(
-            `      <totalSinImpuestos>${this.formatAmount(doc.totalSinImpuestos)}</totalSinImpuestos>`,
-          );
-          lines.push(`      <importeTotal>${this.formatAmount(doc.importeTotal)}</importeTotal>`);
-
-          lines.push('      <impuestosDocSustento>');
-          for (const imp of doc.impuestosDocSustento) {
-            lines.push('        <impuestoDocSustento>');
-            lines.push(
-              `          <codImpuestoDocSustento>${this.escapeXml(imp.codImpuestoDocSustento)}</codImpuestoDocSustento>`,
-            );
-            lines.push(
-              `          <codigoPorcentaje>${this.escapeXml(imp.codigoPorcentaje)}</codigoPorcentaje>`,
-            );
-            lines.push(
-              `          <baseImponible>${this.formatAmount(imp.baseImponible)}</baseImponible>`,
-            );
-            lines.push(`          <tarifa>${this.formatAmount(imp.tarifa)}</tarifa>`);
-            lines.push(
-              `          <valorImpuesto>${this.formatAmount(imp.valorImpuesto)}</valorImpuesto>`,
-            );
-            lines.push('        </impuestoDocSustento>');
-          }
-          lines.push('      </impuestosDocSustento>');
-
-          lines.push('      <retenciones>');
-          for (const ret of doc.retenciones) {
-            lines.push('        <retencion>');
-            lines.push(`          <codigo>${this.escapeXml(ret.codigo)}</codigo>`);
-            lines.push(
-              `          <codigoRetencion>${this.escapeXml(ret.codigoRetencion)}</codigoRetencion>`,
-            );
-            lines.push(
-              `          <baseImponible>${this.formatAmount(ret.baseImponible)}</baseImponible>`,
-            );
-            lines.push(
-              `          <porcentajeRetener>${this.formatAmount(ret.porcentajeRetener)}</porcentajeRetener>`,
-            );
-            lines.push(
-              `          <valorRetenido>${this.formatAmount(ret.valorRetenido)}</valorRetenido>`,
-            );
-            lines.push('        </retencion>');
-          }
-          lines.push('      </retenciones>');
-
-          lines.push('      <pagos>');
-          for (const pago of doc.pagos) {
-            lines.push('        <pago>');
-            lines.push(`          <formaPago>${this.escapeXml(pago.formaPago)}</formaPago>`);
-            lines.push(`          <total>${this.formatAmount(pago.total)}</total>`);
-            lines.push('        </pago>');
-          }
-          lines.push('      </pagos>');
-          lines.push('    </docSustento>');
-        }
-        lines.push('  </docsSustento>');
-
-        // 4. <infoAdicional>
-        this.appendInfoAdicionalLines(lines, dto.infoAdicional ?? []);
-
-        lines.push('</comprobanteRetencion>');
-        return lines.join('\n');
       }
+    }
+
+    this.appendInfoAdicionalLines(lines, infoAdicional);
+
+    lines.push('</comprobanteRetencion>');
+    return lines.join('\n');
+  }
 
   private appendInfoTributariaLines(
-        lines: string[],
-        params: {
-          ambiente: string;
-          razonSocial: string;
-          nombreComercial?: string;
-          ruc: string;
-          claveAcceso: string;
-          codDoc: '01' | '07';
-          estab: string;
-          ptoEmi: string;
-          secuencial: string;
-          dirMatriz: string;
-          agenteRetencion?: string;
-          contribuyenteRimpe?: string;
-        },
-      ): void {
+    lines: string[],
+    params: {
+      ambiente: string;
+      razonSocial: string;
+      nombreComercial?: string;
+      ruc: string;
+      claveAcceso: string;
+      codDoc: '01' | '07';
+      estab: string;
+      ptoEmi: string;
+      secuencial: string;
+      dirMatriz: string;
+      agenteRetencion?: string;
+      contribuyenteRimpe?: string;
+    },
+  ): void {
     lines.push('  <infoTributaria>');
     lines.push(`    <ambiente>${this.escapeXml(params.ambiente)}</ambiente>`);
     lines.push('    <tipoEmision>1</tipoEmision>');

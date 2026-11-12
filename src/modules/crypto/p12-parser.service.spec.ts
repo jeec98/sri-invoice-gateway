@@ -240,4 +240,86 @@ describe('P12ParserService — 6 SRI Digital Certificate Validations', () => {
       BadRequestException,
     );
   });
+
+  describe('inspectCertificate (Diagnóstico No Destructivo)', () => {
+    it('debe inspeccionar exitosamente un .p12 válido sin lanzar excepciones', () => {
+      const now = new Date();
+      const p12Buffer = createTestP12Buffer({
+        password: 'ValidPassword',
+        validFrom: new Date(now.getTime() - 86400 * 1000),
+        validTo: new Date(now.getTime() + 180 * 86400 * 1000), // 180 días
+        subjectRuc: '1790011674001',
+        issuerOrg: 'SECURITY DATA S.A.',
+      });
+
+      const diag = service.inspectCertificate(p12Buffer, 'ValidPassword', {
+        expectedRuc: '1790011674001',
+      });
+
+      expect(diag.isValid).toBe(true);
+      expect(diag.status).toBe('VALID');
+      expect(diag.isAccreditedCa).toBe(true);
+      expect(diag.matchesIssuerRuc).toBe(true);
+      expect(diag.daysRemaining).toBeGreaterThan(170);
+      expect(diag.issues).toHaveLength(0);
+    });
+
+    it('debe capturar contraseña incorrecta retornando isValid: false sin lanzar excepción', () => {
+      const now = new Date();
+      const p12Buffer = createTestP12Buffer({
+        password: 'ValidPassword',
+        validFrom: new Date(now.getTime() - 86400 * 1000),
+        validTo: new Date(now.getTime() + 86400 * 1000),
+      });
+
+      const diag = service.inspectCertificate(p12Buffer, 'WrongPassword');
+
+      expect(diag.isValid).toBe(false);
+      expect(diag.status).toBe('INVALID_PASSWORD');
+      expect(diag.issues.some((i) => i.code === 'CERTIFICATE_INVALID_PASSWORD')).toBe(true);
+    });
+
+    it('debe detectar certificado expirado y certificado próximo a caducar', () => {
+      const now = new Date();
+      // Expirado:
+      const p12Expired = createTestP12Buffer({
+        password: 'Pass',
+        validFrom: new Date(now.getTime() - 400 * 86400 * 1000),
+        validTo: new Date(now.getTime() - 10 * 86400 * 1000),
+      });
+      const diagExpired = service.inspectCertificate(p12Expired, 'Pass');
+      expect(diagExpired.isValid).toBe(false);
+      expect(diagExpired.status).toBe('EXPIRED');
+      expect(diagExpired.issues.some((i) => i.code === 'CERTIFICATE_EXPIRED')).toBe(true);
+
+      // Próximo a caducar (en 15 días):
+      const p12ExpiringSoon = createTestP12Buffer({
+        password: 'Pass',
+        validFrom: new Date(now.getTime() - 300 * 86400 * 1000),
+        validTo: new Date(now.getTime() + 15 * 86400 * 1000),
+      });
+      const diagSoon = service.inspectCertificate(p12ExpiringSoon, 'Pass');
+      expect(diagSoon.isValid).toBe(true); // Válido pero con advertencia
+      expect(diagSoon.status).toBe('EXPIRING_SOON');
+      expect(diagSoon.issues.some((i) => i.code === 'CERTIFICATE_EXPIRING_SOON')).toBe(true);
+    });
+
+    it('debe detectar discrepancia de RUC emisor vs certificado', () => {
+      const now = new Date();
+      const p12Buffer = createTestP12Buffer({
+        password: 'Pass',
+        validFrom: new Date(now.getTime() - 86400 * 1000),
+        validTo: new Date(now.getTime() + 60 * 86400 * 1000),
+        subjectRuc: '1790011674001',
+      });
+
+      const diag = service.inspectCertificate(p12Buffer, 'Pass', {
+        expectedRuc: '1792147820001', // RUC diferente
+      });
+
+      expect(diag.isValid).toBe(false);
+      expect(diag.matchesIssuerRuc).toBe(false);
+      expect(diag.issues.some((i) => i.code === 'CERTIFICATE_RUC_MISMATCH')).toBe(true);
+    });
+  });
 });

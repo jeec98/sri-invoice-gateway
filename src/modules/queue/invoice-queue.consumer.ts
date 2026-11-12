@@ -111,14 +111,14 @@ export class InvoiceQueueConsumer extends WorkerHost {
       const unsignedXml =
         invoiceJob.codDoc === '07'
           ? this.xmlBuilder.buildRetencionXml(
-            invoiceJob.payloadJson as unknown as CreateRetentionDto,
-            claveAcceso,
-          )
+              invoiceJob.payloadJson as unknown as CreateRetentionDto,
+              claveAcceso,
+            )
           : this.xmlBuilder.buildFacturaXml(
-            invoiceJob.payloadJson as unknown as CreateInvoiceDto,
-            claveAcceso,
-            tenant.apiClient?.ruc,
-          );
+              invoiceJob.payloadJson as unknown as CreateInvoiceDto,
+              claveAcceso,
+              tenant.apiClient?.ruc,
+            );
 
       // 4. Sign XML with XAdES-BES engine using ephemeral credentials
       const signedXml = this.xadesSigner.signXml(unsignedXml, ephemeralP12Buffer, certPassword);

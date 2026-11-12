@@ -1,6 +1,15 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import * as forge from 'node-forge';
+import {
+  CertificateHealthStatus,
+  DiagnosticErrorCode,
+  RevocationStatus,
+} from '../diagnostics/constants/diagnostic-error-codes';
+import {
+  CertificateDiagnosticDto,
+  DiagnosticIssueDto,
+} from '../diagnostics/dto/diagnostic-response.dto';
 
 export interface P12ValidationOptions {
   /**
@@ -241,6 +250,320 @@ export class P12ParserService {
       validFrom,
       validTo,
       crlUrls,
+    };
+  }
+
+  /**
+   * Non-destructive diagnostic inspection of a PKCS#12 (.p12/.pfx) digital certificate.
+   * Returns a complete health report (CertificateDiagnosticDto) without throwing fatal HTTP exceptions.
+   */
+  inspectCertificate(
+    p12Buffer: Buffer,
+    password: string,
+    options?: P12ValidationOptions,
+  ): CertificateDiagnosticDto {
+    const issues: DiagnosticIssueDto[] = [];
+
+    if (!p12Buffer || p12Buffer.length === 0) {
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_EMPTY,
+        message: 'El archivo .p12 está vacío o no fue suministrado.',
+        severity: 'ERROR',
+        sriOfficialCode: 40,
+        recommendedAction: 'Cargue un archivo PKCS#12 (.p12 o .pfx) válido.',
+      });
+      return {
+        isValid: false,
+        status: CertificateHealthStatus.CORRUPTED,
+        isAccreditedCa: false,
+        revocationStatus: RevocationStatus.INDETERMINATE,
+        issues,
+      };
+    }
+
+    let p12: forge.pkcs12.Pkcs12Pfx;
+    try {
+      const derBytes = p12Buffer.toString('binary');
+      const asn1 = forge.asn1.fromDer(derBytes);
+      p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, password);
+    } catch {
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_INVALID_PASSWORD,
+        message: 'No se pudo abrir el archivo .p12 con la contraseña suministrada.',
+        severity: 'ERROR',
+        sriOfficialCode: 40,
+        recommendedAction: 'Verifique la contraseña de su firma electrónica.',
+      });
+      return {
+        isValid: false,
+        status: CertificateHealthStatus.INVALID_PASSWORD,
+        isAccreditedCa: false,
+        revocationStatus: RevocationStatus.INDETERMINATE,
+        issues,
+      };
+    }
+
+    // Extract private keys and certs
+    const shroudedBags =
+      p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[
+        forge.pki.oids.pkcs8ShroudedKeyBag
+      ] || [];
+    const plainKeyBags =
+      p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag] || [];
+    const allKeyBags = [...shroudedBags, ...plainKeyBags].filter((b) => b && b.key);
+
+    if (allKeyBags.length === 0) {
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_PRIVATE_KEY_NOT_FOUND,
+        message: 'No se encontró la clave privada RSA en el archivo .p12.',
+        severity: 'ERROR',
+        sriOfficialCode: 40,
+        recommendedAction: 'Asegúrese de exportar el certificado con su clave privada.',
+      });
+      return {
+        isValid: false,
+        status: CertificateHealthStatus.CORRUPTED,
+        isAccreditedCa: false,
+        revocationStatus: RevocationStatus.INDETERMINATE,
+        issues,
+      };
+    }
+
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
+    const validCertBags = certBags.filter((b) => b && b.cert);
+
+    if (validCertBags.length === 0) {
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_NOT_FOUND,
+        message: 'No se encontró ningún certificado X.509 en el archivo .p12.',
+        severity: 'ERROR',
+        sriOfficialCode: 40,
+        recommendedAction: 'Exporte un archivo .p12 válido que contenga el certificado X.509.',
+      });
+      return {
+        isValid: false,
+        status: CertificateHealthStatus.CORRUPTED,
+        isAccreditedCa: false,
+        revocationStatus: RevocationStatus.INDETERMINATE,
+        issues,
+      };
+    }
+
+    // Match key pair
+    let selectedKey: forge.pki.rsa.PrivateKey | null = null;
+    let selectedCert: forge.pki.Certificate | null = null;
+    let foundSigningPair = false;
+
+    for (const keyBag of allKeyBags) {
+      const candidateKey = keyBag.key as forge.pki.rsa.PrivateKey;
+      for (const certBag of validCertBags) {
+        const candidateCert = certBag.cert as forge.pki.Certificate;
+        const pubKey = candidateCert.publicKey as forge.pki.rsa.PublicKey;
+        if (
+          pubKey &&
+          candidateKey &&
+          pubKey.n &&
+          candidateKey.n &&
+          pubKey.e &&
+          candidateKey.e &&
+          pubKey.n.compareTo(candidateKey.n) === 0 &&
+          pubKey.e.compareTo(candidateKey.e) === 0
+        ) {
+          selectedKey = candidateKey;
+          selectedCert = candidateCert;
+          if (this.isSigningCertificate(candidateCert)) {
+            foundSigningPair = true;
+            break;
+          }
+        }
+      }
+      if (foundSigningPair) break;
+    }
+
+    if (!selectedKey || !selectedCert) {
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_KEY_MISMATCH,
+        message: 'La clave privada y el certificado X.509 no se corresponden criptográficamente.',
+        severity: 'ERROR',
+        sriOfficialCode: 39,
+        recommendedAction: 'Vuelva a exportar el certificado y la clave privada asociados.',
+      });
+      return {
+        isValid: false,
+        status: CertificateHealthStatus.CORRUPTED,
+        isAccreditedCa: false,
+        revocationStatus: RevocationStatus.INDETERMINATE,
+        issues,
+      };
+    }
+
+    // Issuer & Subject extraction
+    const issuerName = this.formatDistinguishedName(selectedCert.issuer.attributes);
+    const subjectName = this.formatDistinguishedName(selectedCert.subject.attributes);
+    const isAccreditedCa = this.isRecognizedCertificationAuthority(selectedCert, issuerName);
+
+    if (!isAccreditedCa) {
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_UNRECOGNIZED_CA,
+        message: `La entidad emisora "${issuerName}" no está en el listado de CAs acreditadas por ARCOTEL / SRI.`,
+        severity: 'WARNING',
+        sriOfficialCode: 40,
+        recommendedAction:
+          'Asegúrese de adquirir una firma emitida por una entidad certificadora acreditada en Ecuador.',
+      });
+    }
+
+    // Dates & status
+    const now = new Date();
+    const validFrom = selectedCert.validity.notBefore;
+    const validTo = selectedCert.validity.notAfter;
+    const daysRemaining = Math.ceil((validTo.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    let status = CertificateHealthStatus.VALID;
+    if (now > validTo) {
+      status = CertificateHealthStatus.EXPIRED;
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_EXPIRED,
+        message: `El certificado caducó el ${validTo.toISOString()}.`,
+        severity: 'ERROR',
+        sriOfficialCode: 42,
+        recommendedAction: 'Renueve su firma electrónica con su entidad certificadora.',
+      });
+    } else if (now < validFrom) {
+      status = CertificateHealthStatus.NOT_YET_VALID;
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_NOT_YET_VALID,
+        message: `El certificado aún no entra en vigencia (${validFrom.toISOString()}).`,
+        severity: 'ERROR',
+        sriOfficialCode: 40,
+        recommendedAction: 'Espere a la fecha de inicio de vigencia del certificado.',
+      });
+    } else if (daysRemaining <= 30) {
+      status = CertificateHealthStatus.EXPIRING_SOON;
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_EXPIRING_SOON,
+        message: `El certificado caducará pronto (en ${daysRemaining} días).`,
+        severity: 'WARNING',
+        recommendedAction: 'Inicie el trámite de renovación de su firma electrónica.',
+      });
+    }
+
+    // Metadata extraction (CN, RUC, Cedula, Representative)
+    let representativeName: string | undefined;
+    let subjectCedula: string | undefined;
+    let subjectRuc: string | undefined;
+
+    const candidateTexts: string[] = [];
+    for (const attr of selectedCert.subject.attributes) {
+      const val = String(attr.value || '');
+      candidateTexts.push(val);
+      if (attr.name === 'commonName' || attr.shortName === 'CN') {
+        representativeName = val;
+      }
+      if (
+        attr.shortName === 'SERIALNUMBER' ||
+        attr.name === 'serialNumber' ||
+        attr.type === '2.5.4.5'
+      ) {
+        const digits = val.replace(/\D/g, '');
+        if (digits.length === 10) subjectCedula = digits;
+        if (digits.length === 13) subjectRuc = digits;
+      }
+    }
+
+    const extensions = (selectedCert.extensions || []) as Array<{ id?: string; value?: string }>;
+    for (const ext of extensions) {
+      if (typeof ext.value === 'string' && ext.value.length > 0) {
+        const printable = ext.value.replace(/[^\x20-\x7E]/g, ' ');
+        candidateTexts.push(printable);
+      }
+    }
+
+    const combinedSubjectText = candidateTexts.join(' | ');
+
+    if (!subjectRuc) {
+      const rucMatch = combinedSubjectText.match(/\b\d{10}00[1-9]\b/);
+      if (rucMatch) subjectRuc = rucMatch[0];
+    }
+    if (!subjectCedula) {
+      const cedulaMatch = combinedSubjectText.match(/\b\d{10}\b/);
+      if (cedulaMatch && cedulaMatch[0] !== subjectRuc?.slice(0, 10)) {
+        subjectCedula = cedulaMatch[0];
+      }
+    }
+
+    let isLegalRepresentative = false;
+    if (
+      /REPRESENTANTE\s*LEGAL|APODERADO|EMPRESA/i.test(combinedSubjectText) ||
+      Boolean(subjectRuc && representativeName)
+    ) {
+      isLegalRepresentative = true;
+    }
+
+    // Expected RUC comparison
+    let matchesIssuerRuc: boolean | undefined;
+    if (options?.expectedRuc) {
+      const cleanExpected = options.expectedRuc.trim();
+      let matches = false;
+      if (combinedSubjectText.includes(cleanExpected)) {
+        matches = true;
+      } else {
+        const third = Number(cleanExpected[2]);
+        const cedula = cleanExpected.slice(0, 10);
+        if (third < 6 && cleanExpected.endsWith('001') && combinedSubjectText.includes(cedula)) {
+          matches = true;
+        }
+      }
+
+      matchesIssuerRuc = matches;
+      if (!matches) {
+        issues.push({
+          code: DiagnosticErrorCode.CERTIFICATE_RUC_MISMATCH,
+          message: `El certificado no coincide con el RUC del emisor (${cleanExpected}).`,
+          severity: 'ERROR',
+          sriOfficialCode: 39,
+          recommendedAction: 'Cargue el archivo .p12 perteneciente al RUC emisor.',
+        });
+      }
+    }
+
+    // Revocation status
+    const cleanHexSerial =
+      (selectedCert.serialNumber || '01').replace(/[^0-9a-fA-F]/g, '').toLowerCase() || '01';
+    const serialNumberDec = BigInt(`0x${cleanHexSerial}`).toString(10);
+
+    let revocationStatus = RevocationStatus.ACTIVE;
+    try {
+      this.verifyNotInRevokedList(cleanHexSerial, serialNumberDec, options?.revokedSerialNumbers);
+    } catch {
+      revocationStatus = RevocationStatus.REVOKED;
+      issues.push({
+        code: DiagnosticErrorCode.CERTIFICATE_REVOKED,
+        message: `El certificado (serie ${serialNumberDec}) figura como REVOCADO.`,
+        severity: 'ERROR',
+        sriOfficialCode: 42,
+        recommendedAction: 'Adquiera una nueva firma electrónica ya que la actual fue revocada.',
+      });
+    }
+
+    const hasFatal = issues.some((i) => i.severity === 'ERROR');
+
+    return {
+      isValid: !hasFatal,
+      status,
+      subject: subjectName,
+      representativeName,
+      isLegalRepresentative,
+      subjectRuc,
+      subjectCedula,
+      issuer: issuerName,
+      isAccreditedCa,
+      validFrom: validFrom.toISOString(),
+      validTo: validTo.toISOString(),
+      daysRemaining,
+      matchesIssuerRuc,
+      revocationStatus,
+      issues,
     };
   }
 

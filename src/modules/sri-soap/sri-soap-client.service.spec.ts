@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import axios from 'axios';
 import { SriSoapClientService } from './sri-soap-client.service';
 
 describe('SriSoapClientService', () => {
@@ -105,5 +106,32 @@ describe('SriSoapClientService', () => {
     expect(parsedAuth.numeroAutorizacion).toBe('0711202601179001167400110010010000001231234567815');
     expect(parsedAuth.authorizedXml).toContain('<autorizacion>');
     expect(parsedAuth.authorizedXml).toContain('<estado>AUTORIZADO</estado>');
+  });
+
+  describe('checkConnectivity', () => {
+    it('debe reportar isReachable: true cuando el WSDL del SRI responde exitosamente', async () => {
+      vi.spyOn(axios, 'get').mockResolvedValueOnce({
+        status: 200,
+        statusText: 'OK',
+        data: '<wsdl:definitions ...></wsdl:definitions>',
+      } as any);
+
+      const conn = await service.checkConnectivity('1');
+      expect(conn.isReachable).toBe(true);
+      expect(conn.url).toContain('celcer.sri.gob.ec');
+      expect(conn.latencyMs).toBeGreaterThanOrEqual(0);
+      expect(conn.issues).toHaveLength(0);
+    });
+
+    it('debe capturar error de timeout o caída de red sin arrojar excepción fatal', async () => {
+      const timeoutError: any = new Error('timeout of 3500ms exceeded');
+      timeoutError.code = 'ECONNABORTED';
+      vi.spyOn(axios, 'get').mockRejectedValueOnce(timeoutError);
+
+      const conn = await service.checkConnectivity('2');
+      expect(conn.isReachable).toBe(false);
+      expect(conn.url).toContain('cel.sri.gob.ec');
+      expect(conn.issues.some((i) => i.code === 'SRI_SOAP_TIMEOUT')).toBe(true);
+    });
   });
 });

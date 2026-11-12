@@ -32,4 +32,3 @@ export class RetentionsController {
     return this.invoicesService.createRetention(tenant, dto, apiClient);
   }
 }
-

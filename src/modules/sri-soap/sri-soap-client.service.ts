@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { DOMParser } from '@xmldom/xmldom';
 import * as xpath from 'xpath';
+import { DiagnosticErrorCode } from '../diagnostics/constants/diagnostic-error-codes';
+import {
+  DiagnosticIssueDto,
+  EnvironmentConnectivityDto,
+} from '../diagnostics/dto/diagnostic-response.dto';
 
 export interface SriMessage {
   identificador: string;
@@ -99,6 +104,73 @@ export class SriSoapClientService {
     });
 
     return this.parseAutorizacionResponse(response.data);
+  }
+
+  /**
+   * Healthcheck ping to test reachability and latency of SRI SOAP Web Services.
+   * Performs an HTTP GET to the ?wsdl endpoint with strict 3500ms timeout.
+   */
+  async checkConnectivity(ambiente: '1' | '2' | string): Promise<EnvironmentConnectivityDto> {
+    const envKey = ambiente === '2' ? '2' : '1';
+    const baseUrl = this.endpoints[envKey].recepcion;
+    const wsdlUrl = `${baseUrl}?wsdl`;
+    const issues: DiagnosticIssueDto[] = [];
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug(`Checking SRI connectivity to ${wsdlUrl}`);
+      const response = await axios.get(wsdlUrl, {
+        timeout: 3500,
+        headers: {
+          Accept: 'text/xml, text/html, application/xhtml+xml',
+        },
+        validateStatus: () => true, // Don't throw on 4xx/5xx, inspect response status
+      });
+
+      const latencyMs = Date.now() - startTime;
+      const isReachable = response.status >= 200 && response.status < 500;
+
+      if (!isReachable) {
+        issues.push({
+          code: DiagnosticErrorCode.SRI_SOAP_UNREACHABLE,
+          message: `El servidor del SRI respondió con estado HTTP ${response.status}.`,
+          severity: 'WARNING',
+          recommendedAction:
+            'Verifique si el portal o servicios del SRI se encuentran en mantenimiento.',
+        });
+      }
+
+      return {
+        isReachable,
+        latencyMs,
+        url: wsdlUrl,
+        details: `HTTP ${response.status} ${response.statusText || ''}`.trim(),
+        issues,
+      };
+    } catch (error: any) {
+      const latencyMs = Date.now() - startTime;
+      const isTimeout = error.code === 'ECONNABORTED' || String(error.message).includes('timeout');
+
+      issues.push({
+        code: isTimeout
+          ? DiagnosticErrorCode.SRI_SOAP_TIMEOUT
+          : DiagnosticErrorCode.SRI_SOAP_UNREACHABLE,
+        message: isTimeout
+          ? `Tiempo de espera agotado al conectar con el SRI (${wsdlUrl}) tras ${latencyMs}ms.`
+          : `No se pudo establecer conexión con el SRI (${wsdlUrl}): ${error.message || 'Error de red'}`,
+        severity: 'WARNING',
+        recommendedAction:
+          'Espere unos minutos y reintente; el SRI puede estar experimentando alta concurrencia o intermitencias.',
+      });
+
+      return {
+        isReachable: false,
+        latencyMs,
+        url: wsdlUrl,
+        details: error.message || 'Network Error',
+        issues,
+      };
+    }
   }
 
   buildRecepcionEnvelope(xmlBase64: string): string {

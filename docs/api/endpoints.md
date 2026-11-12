@@ -877,3 +877,77 @@ def get_invoice_status(api_key: str, tenant_id: str, clave_acceso: str) -> dict:
 | `401 Unauthorized` | `INVALID_API_KEY` | Credencial Bearer inválida o ausente. |
 | `403 Forbidden` | `TENANT_ACCESS_DENIED` | La empresa emisora no pertenece a la plataforma SaaS autenticada. |
 | `404 Not Found` | `INVOICE_NOT_FOUND: No se encontró la factura con la Clave de Acceso especificada para este tenant.` | No existe comprobante con esa clave bajo este tenant. |
+
+---
+
+## 6. POST /v1/diagnostics/verify-setup
+
+**Diagnóstico de Pre-vuelo Stateless (En Memoria, <500ms)**
+
+Valida preventivamente el RUC (Módulo 10/11), la firma `.p12` (contraseña, integridad RSA, vigencia temporal, CA autorizada ARCOTEL y coincidencia con el RUC emisor), la matriz de establecimientos y la conectividad con los Web Services del SRI. No persiste información en base de datos ni deja archivos en disco.
+
+### Encabezados de Petición
+| Encabezado | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `Authorization` | `string` | **Sí** | `Bearer <tu_apiKey>` |
+| `Content-Type` | `string` | **Sí** | `application/json` o `multipart/form-data` |
+
+### Cuerpo de la Petición (JSON)
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `ruc` | `string` | **Sí** | RUC de 13 dígitos numéricos a validar. |
+| `password` | `string` | **Sí** | Contraseña del archivo `.p12`. |
+| `p12Base64` | `string` | Opcional | Contenido del archivo `.p12` en Base64 (si no se envía por `multipart`). |
+| `ambiente` | `string` | No | `"1"` (Pruebas) o `"2"` (Producción). Por defecto `"1"`. |
+| `establishments` | `array` | No | Lista de sucursales a diagnosticar (`[{ codigo: "001", puntoEmision: "001", activo: true }]`). |
+
+### Respuesta (`200 OK`)
+Devuelve `overallStatus: "READY" | "DEGRADED" | "FAILED"` y la bandera `canIssueInvoices: boolean`, junto con el detalle de cada subsistema y los códigos oficiales del SRI.
+
+---
+
+## 7. GET /v1/tenants/:tenantId/diagnostics
+
+**Auditoría Integral Stateful de un Tenant Registrado**
+
+Descifra en memoria el certificado activo de la base de datos del tenant y realiza la auditoría completa de RUC, vigencia, revocación y conectividad con el SRI.
+
+### Encabezados de Petición
+| Encabezado | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `Authorization` | `string` | **Sí** | `Bearer <tu_apiKey>` |
+
+### Parámetros de Ruta
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `tenantId` | `string` | UUID del tenant registrado. |
+
+### Respuesta (`200 OK`)
+Retorna el mismo esquema estructurado que el endpoint de pre-vuelo (`DiagnosticResponseDto`).
+
+---
+
+## 8. GET /v1/tenants/:tenantId/eligibility
+
+**Consulta Ligera de Elegibilidad de Emisión (<100ms)**
+
+Endpoint ultraligero diseñado para interfaces de usuario y comprobaciones previas en formularios de venta o facturación. Devuelve si el negocio puede emitir (`canIssueInvoices: boolean`), estado técnico y motivos bloqueantes.
+
+### Respuesta (`200 OK`)
+```json
+{
+  "tenantId": "c3e98124-742a-4bc1-9e23-1123456789ab",
+  "ruc": "1790016919001",
+  "canIssueInvoices": true,
+  "overallStatus": "READY",
+  "checks": {
+    "rucValid": true,
+    "certificateValid": true,
+    "certificateDaysRemaining": 420,
+    "activeEstablishments": 2,
+    "sriOnline": true
+  },
+  "blockers": []
+}
+```
+

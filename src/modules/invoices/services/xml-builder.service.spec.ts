@@ -287,4 +287,77 @@ describe('XmlBuilderService', () => {
     expect(xml).toContain('<valorRetenido>20.00</valorRetenido>');
     expect(xml).toContain('<valorRetenido>45.00</valorRetenido>');
   });
+
+  it('debe inyectar RUC Proveedor en infoAdicional en Retención (Anexo 26 Ficha Técnica v2.34)', () => {
+    const claveAcceso = '1111202607179001167400110010010000000011234567819';
+    const dto: CreateRetentionDto = {
+      referenceId: 'RET-2001',
+      ambiente: '1',
+      webhookUrl: 'https://saas.example.com/webhooks/sri',
+      razonSocial: 'TECNOLOGIA & SOLUCIONES S.A.',
+      ruc: '1790011674001',
+      estab: '001',
+      ptoEmi: '001',
+      secuencial: '000000001',
+      dirMatriz: 'AV. AMAZONAS Y NACIONES UNIDAS',
+      fechaEmision: '11/11/2026',
+      dirEstablecimiento: 'AV. AMAZONAS Y NACIONES UNIDAS',
+      obligadoContabilidad: 'SI',
+      tipoIdentificacionSujetoRetenido: '04',
+      parteRel: 'NO',
+      razonSocialSujetoRetenido: 'ACEROS & PERFILES S.A.',
+      identificacionSujetoRetenido: '1792147820001',
+      periodoFiscal: '11/2026',
+      docsSustento: [
+        {
+          codSustento: '01',
+          codDocSustento: '01',
+          numDocSustento: '001-001-000012345',
+          fechaEmisionDocSustento: '10/11/2026',
+          pagoLocExt: '01',
+          totalSinImpuestos: 100.0,
+          importeTotal: 115.0,
+          impuestosDocSustento: [
+            {
+              codImpuestoDocSustento: '2',
+              codigoPorcentaje: '4',
+              baseImponible: 100.0,
+              tarifa: 15,
+              valorImpuesto: 15.0,
+            },
+          ],
+          retenciones: [
+            {
+              codigo: '1',
+              codigoRetencion: '312',
+              baseImponible: 100.0,
+              porcentajeRetener: 2,
+              valorRetenido: 2.0,
+            },
+          ],
+          pagos: [{ formaPago: '20', total: 115.0 }],
+        },
+      ],
+      infoAdicional: [{ nombre: 'Email', valor: 'contabilidad@ejemplo.com' }],
+    };
+
+    const xml = service.buildRetencionXml(dto, claveAcceso, '1719369561001');
+    expect(xml).toContain('<campoAdicional nombre="RUC Proveedor">1719369561001</campoAdicional>');
+    expect(xml).toContain(
+      '<campoAdicional nombre="Email">contabilidad@ejemplo.com</campoAdicional>',
+    );
+
+    // Verificar que no se duplica si ya venía incluido
+    const dtoWithProvider: CreateRetentionDto = {
+      ...dto,
+      infoAdicional: [{ nombre: 'ruc proveedor', valor: '1719369561001' }],
+    };
+    const xmlDeduplicated = service.buildRetencionXml(
+      dtoWithProvider,
+      claveAcceso,
+      '1719369561001',
+    );
+    const matches = xmlDeduplicated.match(/campoAdicional nombre="ruc proveedor"/gi);
+    expect(matches?.length).toBe(1);
+  });
 });

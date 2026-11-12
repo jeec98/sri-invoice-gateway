@@ -41,6 +41,7 @@ export default withMermaid(
             { text: 'Provisionamiento SaaS', link: '/guide/provisioning' },
             { text: 'Gestión de Tenants', link: '/guide/tenants' },
             { text: 'Certificados Digitales .p12', link: '/guide/certificates' },
+            { text: 'Diagnóstico & Salud SRI', link: '/guide/diagnostics' },
             { text: 'Emisión de Facturas (<200ms)', link: '/guide/invoices' },
             { text: 'Ciclo de Vida & Estados SRI', link: '/guide/statuses' },
             { text: 'Webhooks & HMAC-SHA256', link: '/guide/webhooks' },
