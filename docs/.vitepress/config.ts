@@ -43,6 +43,7 @@ export default withMermaid(
             { text: 'Certificados Digitales .p12', link: '/guide/certificates' },
             { text: 'Diagnóstico & Salud SRI', link: '/guide/diagnostics' },
             { text: 'Emisión de Facturas (<200ms)', link: '/guide/invoices' },
+            { text: 'Emisión de Retenciones (v2.0.0)', link: '/guide/retentions' },
             { text: 'Ciclo de Vida & Estados SRI', link: '/guide/statuses' },
             { text: 'Webhooks & HMAC-SHA256', link: '/guide/webhooks' },
             { text: 'Rate Limiting', link: '/guide/rate-limiting' },

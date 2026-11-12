@@ -740,11 +740,67 @@ def emit_invoice(api_key: str, tenant_id: str, invoice_payload: dict) -> dict:
 
 ---
 
-## 6. GET /v1/tenants/:tenantId/invoices/:claveAcceso
+## 6. POST /v1/tenants/:tenantId/retentions
 
-**Consulta de Estado y XML Autorizado por Clave de Acceso**
+**Emisión Asíncrona de Comprobante de Retención Electrónico v2.0.0 (`codDoc = 07`)**
 
-Permite a la plataforma SaaS consultar el estado actual de tramitación tributaria de una factura, sus mensajes de observaciones o rechazo del SRI, y recuperar los documentos XML firmados (`signedXml`) y autorizados (`authorizedXml`).
+Valida certificado activo del tenant, genera la Clave de Acceso de 49 dígitos con código de documento `07`, persiste el comprobante con estado `QUEUED`, inyecta automáticamente el campo mandatorio `RUC Proveedor` (Anexo 26) y encola el trabajo en BullMQ para firmado XAdES-BES y envío al SRI en **menos de 200 ms**.
+
+### Encabezados de Petición
+| Encabezado | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `Authorization` | `string` | **Sí** | `Bearer <tu_apiKey>` |
+| `Content-Type` | `string` | **Sí** | `application/json` |
+
+### Parámetros de Ruta
+| Parámetro | Tipo | Descripción |
+| :--- | :--- | :--- |
+| `tenantId` | `string` | UUID del tenant emisor registrado. |
+
+### Cuerpo de la Petición (JSON)
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `referenceId` | `string` | **Sí** | Identificador idempotente único en tu sistema (ej. `"RET-2026-0001"`). |
+| `ambiente` | `string` | **Sí** | `"1"` (Pruebas) o `"2"` (Producción). |
+| `webhookUrl` | `string` | No | URL donde recibir el resultado final firmado con HMAC-SHA256. |
+| `razonSocial` | `string` | **Sí** | Razón social del emisor. |
+| `ruc` | `string` | **Sí** | RUC de 13 dígitos del emisor (debe coincidir con `tenant.ruc`). |
+| `estab` | `string` | **Sí** | Serie de 3 dígitos del establecimiento (ej. `"001"`). |
+| `ptoEmi` | `string` | **Sí** | Serie de 3 dígitos del punto de emisión (ej. `"001"`). |
+| `secuencial` | `string` | **Sí** | Secuencial de 9 dígitos numéricos (ej. `"000000001"`). |
+| `dirMatriz` | `string` | **Sí** | Dirección matriz del emisor. |
+| `dirEstablecimiento` | `string` | **Sí** | Dirección del local emisor. |
+| `fechaEmision` | `string` | **Sí** | Fecha en formato `dd/mm/yyyy`. |
+| `obligadoContabilidad` | `string` | **Sí** | `"SI"` o `"NO"`. |
+| `tipoIdentificacionSujetoRetenido` | `string` | **Sí** | Tipo identificación sujeto retenido (`"04"` RUC, `"05"` Cédula, `"06"` Pasaporte). |
+| `parteRel` | `string` | **Sí** | `"SI"` o `"NO"`. |
+| `razonSocialSujetoRetenido` | `string` | **Sí** | Razón social del proveedor retenido. |
+| `identificacionSujetoRetenido` | `string` | **Sí** | RUC o cédula del sujeto retenido. |
+| `periodoFiscal` | `string` | **Sí** | Período fiscal en formato `mm/yyyy`. |
+| `docsSustento` | `array` | **Sí** | Lista de documentos de sustento que originan la retención (facturas retenidas). |
+| `infoAdicional` | `array` | No | Campos adicionales opcionales (`[{ nombre: "Email", valor: "correo@ejemplo.com" }]`). |
+
+### Respuesta (`202 Accepted`)
+```json
+{
+  "success": true,
+  "jobId": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "referenceId": "RET-2026-0001",
+  "claveAcceso": "1211202607179001167400110010010000000011234567819",
+  "ambiente": "1",
+  "status": "QUEUED",
+  "queuePosition": 1,
+  "createdAt": "2026-11-12T21:15:00.000Z"
+}
+```
+
+---
+
+## 7. GET /v1/tenants/:tenantId/invoices/:claveAcceso
+
+**Consulta de Estado y XML Autorizado por Clave de Acceso (Facturas y Retenciones)**
+
+Permite a la plataforma SaaS consultar el estado actual de tramitación tributaria de un comprobante (factura o retención), sus mensajes de observaciones o rechazo del SRI, y recuperar los documentos XML firmados (`signedXml`) y autorizados (`authorizedXml`).
 
 La búsqueda se ejecuta bajo estricto aislamiento multi-tenant (`WHERE clave_acceso = :claveAcceso AND tenant_id = :tenantId`).
 
@@ -880,7 +936,7 @@ def get_invoice_status(api_key: str, tenant_id: str, clave_acceso: str) -> dict:
 
 ---
 
-## 6. POST /v1/diagnostics/verify-setup
+## 8. POST /v1/diagnostics/verify-setup
 
 **Diagnóstico de Pre-vuelo Stateless (En Memoria, <500ms)**
 
@@ -927,7 +983,7 @@ Para ver el catálogo exhaustivo de todos los códigos de error (`INVALID_RUC_*`
 
 ---
 
-## 7. GET /v1/tenants/:tenantId/diagnostics
+## 9. GET /v1/tenants/:tenantId/diagnostics
 
 **Auditoría Integral Stateful de un Tenant Registrado**
 
@@ -955,7 +1011,7 @@ Retorna el mismo esquema estructurado que el endpoint de pre-vuelo (`DiagnosticR
 
 ---
 
-## 8. GET /v1/tenants/:tenantId/eligibility
+## 10. GET /v1/tenants/:tenantId/eligibility
 
 **Consulta Ligera de Elegibilidad de Emisión (<100ms)**
 
