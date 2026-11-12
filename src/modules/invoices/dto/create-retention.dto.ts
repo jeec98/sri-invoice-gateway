@@ -279,3 +279,4 @@ export class CreateRetentionDto {
   @Type(() => RetentionAdditionalFieldDto)
   infoAdicional?: RetentionAdditionalFieldDto[];
 }
+
