@@ -13,4 +13,3 @@ import { DiagnosticsController } from './diagnostics.controller';
   exports: [RucValidatorService, DiagnosticsService],
 })
 export class DiagnosticsModule {}
-
