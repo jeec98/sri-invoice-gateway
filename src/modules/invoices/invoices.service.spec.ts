@@ -9,6 +9,7 @@ import { ApiClient, Certificate, Tenant } from '@prisma/client';
 import { InvoicesService } from './invoices.service';
 import { AccessKeyService } from './services/access-key.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { CreateRetentionDto } from './dto/create-retention.dto';
 import { TenantAccessGuard } from '../tenants/guards/tenant-access.guard';
 import { ExecutionContext } from '@nestjs/common';
 
@@ -350,6 +351,82 @@ describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', 
       }
 
       expect(prismaMock.invoiceJob.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createRetention (codDoc = 07)', () => {
+    const validRetentionDto: CreateRetentionDto = {
+      referenceId: 'RET-2026-0001',
+      ambiente: '1',
+      razonSocial: 'Empresa Demo S.A.',
+      ruc: '1790011674001',
+      estab: '001',
+      ptoEmi: '001',
+      secuencial: '000000001',
+      dirMatriz: 'Quito',
+      fechaEmision: '11/11/2026',
+      dirEstablecimiento: 'Quito',
+      obligadoContabilidad: 'SI',
+      tipoIdentificacionSujetoRetenido: '04',
+      parteRel: 'NO',
+      razonSocialSujetoRetenido: 'Proveedor S.A.',
+      identificacionSujetoRetenido: '0991234567001',
+      periodoFiscal: '11/2026',
+      docsSustento: [
+        {
+          codSustento: '01',
+          codDocSustento: '01',
+          numDocSustento: '001002000045678',
+          fechaEmisionDocSustento: '10/11/2026',
+          totalSinImpuestos: 100,
+          importeTotal: 115,
+          impuestosDocSustento: [
+            {
+              codImpuestoDocSustento: '2',
+              codigoPorcentaje: '4',
+              baseImponible: 100,
+              tarifa: 15,
+              valorImpuesto: 15,
+            },
+          ],
+          retenciones: [
+            {
+              codigo: '1',
+              codigoRetencion: '312',
+              baseImponible: 100,
+              porcentajeRetener: 2,
+              valorRetenido: 2,
+            },
+          ],
+          pagos: [{ formaPago: '20', total: 115 }],
+        },
+      ],
+    };
+
+    it('should generate 49-digit Clave de Acceso with codDoc=07, persist InvoiceJob with codDoc=07, and enqueue BullMQ job', async () => {
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(null);
+      prismaMock.invoiceJob.create.mockImplementationOnce(async ({ data }) => ({
+        id: 'job-ret-1',
+        ...data,
+      }));
+
+      const result = await service.createRetention(mockTenant, validRetentionDto, mockClient);
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe('QUEUED');
+      expect(result.claveAcceso).toHaveLength(49);
+      // Digits 9-10 (index 8..10) in SRI Access Key correspond to codDoc ('07')
+      expect(result.claveAcceso.slice(8, 10)).toBe('07');
+      expect(prismaMock.invoiceJob.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            codDoc: '07',
+            referenceId: 'RET-2026-0001',
+            status: 'QUEUED',
+          }),
+        }),
+      );
+      expect(queueMock.add).toHaveBeenCalledTimes(1);
     });
   });
 });

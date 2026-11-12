@@ -5,6 +5,7 @@ import { AccessKeyService } from './services/access-key.service';
 import { XmlBuilderService } from './services/xml-builder.service';
 import { InvoicesService } from './invoices.service';
 import { InvoicesController } from './invoices.controller';
+import { RetentionsController } from './retentions.controller';
 import { SRI_INVOICE_QUEUE } from './invoices.constants';
 
 @Module({
@@ -14,7 +15,7 @@ import { SRI_INVOICE_QUEUE } from './invoices.constants';
       name: SRI_INVOICE_QUEUE,
     }),
   ],
-  controllers: [InvoicesController],
+  controllers: [InvoicesController, RetentionsController],
   providers: [AccessKeyService, XmlBuilderService, InvoicesService],
   exports: [AccessKeyService, XmlBuilderService, InvoicesService],
 })

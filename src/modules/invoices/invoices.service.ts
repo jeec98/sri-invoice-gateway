@@ -11,6 +11,7 @@ import { ApiClient, InvoiceJob, Prisma, Tenant } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessKeyService } from './services/access-key.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { CreateRetentionDto } from './dto/create-retention.dto';
 import { PROCESS_INVOICE_JOB, SRI_INVOICE_QUEUE } from './invoices.constants';
 
 @Injectable()
@@ -22,7 +23,27 @@ export class InvoicesService {
   ) {}
 
   async createInvoice(tenant: Tenant, dto: CreateInvoiceDto, apiClient?: ApiClient | null) {
-    // 1. Check for active digital certificate in Certificate table
+    return this.enqueueElectronicDocument(tenant, dto, '01', apiClient);
+  }
+
+  async enqueueInvoice(tenant: Tenant, dto: CreateInvoiceDto, apiClient?: ApiClient | null) {
+    return this.createInvoice(tenant, dto, apiClient);
+  }
+
+  async createRetention(
+    tenant: Tenant,
+    dto: CreateRetentionDto,
+    apiClient?: ApiClient | null,
+  ) {
+    return this.enqueueElectronicDocument(tenant, dto, '07', apiClient);
+  }
+
+  private async enqueueElectronicDocument(
+    tenant: Tenant,
+    dto: CreateInvoiceDto | CreateRetentionDto,
+    codDoc: '01' | '07',
+    apiClient?: ApiClient | null,
+  ) {
     const activeCert = await this.prisma.certificate.findFirst({
       where: {
         tenantId: tenant.id,
@@ -44,14 +65,12 @@ export class InvoicesService {
       );
     }
 
-    // 2. Enforce Taxpayer Invariant: tenant.ruc === dto.ruc
     if (tenant.ruc !== dto.ruc) {
       throw new ForbiddenException(
         `RUC_MISMATCH: El RUC del emisor en el payload (${dto.ruc}) no coincide con el RUC del tenant (${tenant.ruc}).`,
       );
     }
 
-    // 3. Guard against duplicate referenceId for the same tenant (Idempotency)
     const existingJob = await this.prisma.invoiceJob.findFirst({
       where: {
         tenantId: tenant.id,
@@ -65,10 +84,9 @@ export class InvoicesService {
       );
     }
 
-    // 4. Immediately generate the 49-digit Clave de Acceso (Modulo 11)
     const claveAcceso = this.accessKeyService.generateAccessKey({
       fechaEmision: dto.fechaEmision,
-      codDoc: '01',
+      codDoc,
       ruc: dto.ruc,
       ambiente: dto.ambiente,
       estab: dto.estab,
@@ -77,14 +95,13 @@ export class InvoicesService {
       tipoEmision: '1',
     });
 
-    // 5. Resolve webhook destination (DTO override or fallback to SaaS platform default)
     const resolvedWebhookUrl = dto.webhookUrl || apiClient?.webhookUrl || '';
 
-    // 6. Persist InvoiceJob record in PostgreSQL with status 'QUEUED'
     const invoiceJob = await this.prisma.invoiceJob.create({
       data: {
         tenantId: tenant.id,
         referenceId: dto.referenceId,
+        codDoc,
         claveAcceso,
         ambiente: dto.ambiente,
         status: 'QUEUED',
@@ -93,7 +110,6 @@ export class InvoicesService {
       },
     });
 
-    // 7. Enqueue background job in BullMQ
     const bullJob = await this.invoiceQueue.add(
       PROCESS_INVOICE_JOB,
       {
@@ -110,15 +126,11 @@ export class InvoicesService {
 
     return {
       success: true,
-      jobId: String(bullJob.id || invoiceJob.id),
+      jobId: String(bullJob?.id || invoiceJob.id),
       referenceId: invoiceJob.referenceId,
       claveAcceso,
       status: 'QUEUED',
     };
-  }
-
-  async enqueueInvoice(tenant: Tenant, dto: CreateInvoiceDto, apiClient?: ApiClient | null) {
-    return this.createInvoice(tenant, dto, apiClient);
   }
 
   async getInvoiceByClaveAcceso(tenant: Tenant, claveAcceso: string) {

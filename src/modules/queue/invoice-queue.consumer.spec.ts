@@ -24,6 +24,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
   };
   let xmlBuilderMock: {
     buildFacturaXml: ReturnType<typeof vi.fn>;
+    buildRetencionXml: ReturnType<typeof vi.fn>;
   };
   let xadesSignerMock: {
     signXml: ReturnType<typeof vi.fn>;
@@ -121,6 +122,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
     };
     xmlBuilderMock = {
       buildFacturaXml: vi.fn().mockReturnValue('<factura id="comprobante"/>'),
+      buildRetencionXml: vi.fn().mockReturnValue('<comprobanteRetencion id="comprobante"/>'),
     };
     xadesSignerMock = {
       signXml: vi.fn().mockReturnValue('<factura id="comprobante"><ds:Signature/></factura>'),
@@ -260,5 +262,38 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
     await consumer.process(job);
 
     expect(callOrder).toContain('db:persist-failed');
+  });
+
+  it('should call xmlBuilder.buildRetencionXml when invoiceJob.codDoc is "07"', async () => {
+    xmlBuilderMock.buildRetencionXml = vi
+      .fn()
+      .mockReturnValue('<comprobanteRetencion id="comprobante" version="2.0.0"/>');
+
+    prismaMock.invoiceJob.findUnique.mockResolvedValueOnce({
+      id: 'job-ret-1',
+      tenantId: 'tenant-1',
+      referenceId: 'RET-100',
+      codDoc: '07',
+      claveAcceso: '1111202607179001167400110010010000000011234567819',
+      ambiente: '1',
+      webhookUrl: 'https://saas.example.com/custom-webhook',
+      payloadJson: { ruc: '1790011674001' },
+    });
+
+    await consumer.process({
+      data: {
+        invoiceJobId: 'job-ret-1',
+        tenantId: 'tenant-1',
+        claveAcceso: '1111202607179001167400110010010000000011234567819',
+      },
+    } as Job<InvoiceQueueJobData>);
+
+    expect(xmlBuilderMock.buildRetencionXml).toHaveBeenCalledTimes(1);
+    expect(xmlBuilderMock.buildFacturaXml).not.toHaveBeenCalled();
+    expect(xadesSignerMock.signXml).toHaveBeenCalledWith(
+      '<comprobanteRetencion id="comprobante" version="2.0.0"/>',
+      expect.any(Buffer),
+      'decrypted-cert-password',
+    );
   });
 });

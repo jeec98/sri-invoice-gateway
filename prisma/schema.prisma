@@ -66,6 +66,7 @@ model InvoiceJob {
   tenantId              String    @map("tenant_id")
   tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   referenceId           String    @map("reference_id")
+  codDoc                String    @default("01") @map("cod_doc") @db.VarChar(2)
   claveAcceso           String    @unique @map("clave_acceso") @db.VarChar(49)
   ambiente              String    @db.VarChar(1)
   status                String    @default("QUEUED")

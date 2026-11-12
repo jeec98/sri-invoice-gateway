@@ -8,6 +8,7 @@ import { AesGcmService } from '../crypto/aes-gcm.service';
 import { XadesBesSignerService } from '../crypto/xades-bes-signer.service';
 import { XmlBuilderService } from '../invoices/services/xml-builder.service';
 import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
+import { CreateRetentionDto } from '../invoices/dto/create-retention.dto';
 import { SRI_INVOICE_QUEUE } from '../invoices/invoices.constants';
 import {
   SriAutorizacionResult,
@@ -107,12 +108,17 @@ export class InvoiceQueueConsumer extends WorkerHost {
       );
 
       // 3. Build canonical unsigned XML with pre-calculated 49-digit Clave de Acceso
-      const payload = invoiceJob.payloadJson as unknown as CreateInvoiceDto;
-      const unsignedXml = this.xmlBuilder.buildFacturaXml(
-        payload,
-        claveAcceso,
-        tenant.apiClient?.ruc,
-      );
+      const unsignedXml =
+        invoiceJob.codDoc === '07'
+          ? this.xmlBuilder.buildRetencionXml(
+              invoiceJob.payloadJson as unknown as CreateRetentionDto,
+              claveAcceso,
+            )
+          : this.xmlBuilder.buildFacturaXml(
+              invoiceJob.payloadJson as unknown as CreateInvoiceDto,
+              claveAcceso,
+              tenant.apiClient?.ruc,
+            );
 
       // 4. Sign XML with XAdES-BES engine using ephemeral credentials
       const signedXml = this.xadesSigner.signXml(unsignedXml, ephemeralP12Buffer, certPassword);
