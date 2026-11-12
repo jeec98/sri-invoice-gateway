@@ -19,4 +19,4 @@ import { SRI_INVOICE_QUEUE } from './invoices.constants';
   providers: [AccessKeyService, XmlBuilderService, InvoicesService],
   exports: [AccessKeyService, XmlBuilderService, InvoicesService],
 })
-export class InvoicesModule {}
+export class InvoicesModule { }

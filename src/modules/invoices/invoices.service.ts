@@ -20,7 +20,7 @@ export class InvoicesService {
     private readonly prisma: PrismaService,
     private readonly accessKeyService: AccessKeyService,
     @InjectQueue(SRI_INVOICE_QUEUE) private readonly invoiceQueue: Queue,
-  ) {}
+  ) { }
 
   async createInvoice(tenant: Tenant, dto: CreateInvoiceDto, apiClient?: ApiClient | null) {
     return this.enqueueElectronicDocument(tenant, dto, '01', apiClient);
