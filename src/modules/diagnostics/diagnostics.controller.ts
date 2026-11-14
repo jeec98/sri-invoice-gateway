@@ -7,10 +7,11 @@ import {
   Param,
   Post,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiConsumes,
@@ -37,9 +38,15 @@ export class DiagnosticsController {
   @Post('diagnostics/verify-setup')
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(
-    FileInterceptor('p12File', {
-      limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
-    }),
+    FileFieldsInterceptor(
+      [
+        { name: 'p12File', maxCount: 1 },
+        { name: 'file', maxCount: 1 },
+      ],
+      {
+        limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+      },
+    ),
   )
   @ApiConsumes('application/json', 'multipart/form-data')
   @ApiOperation({
@@ -55,9 +62,14 @@ export class DiagnosticsController {
   })
   async verifySetup(
     @Body() dto: VerifySetupDto,
-    @UploadedFile() p12File?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      p12File?: Express.Multer.File[];
+      file?: Express.Multer.File[];
+    },
   ): Promise<DiagnosticResponseDto> {
-    const fileBuffer = p12File?.buffer;
+    const p12 = files?.p12File?.[0] || files?.file?.[0];
+    const fileBuffer = p12?.buffer;
     return this.diagnosticsService.verifySetup(dto, fileBuffer);
   }
 
