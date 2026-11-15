@@ -11,6 +11,7 @@ import { SriSoapModule } from './modules/sri-soap/sri-soap.module';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { QueueModule } from './modules/queue/queue.module';
 import { DiagnosticsModule } from './modules/diagnostics/diagnostics.module';
+import { TaxpayersModule } from './modules/taxpayers/taxpayers.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { DiagnosticsModule } from './modules/diagnostics/diagnostics.module';
     WebhookModule,
     QueueModule,
     DiagnosticsModule,
+    TaxpayersModule,
   ],
 })
 export class AppModule {}

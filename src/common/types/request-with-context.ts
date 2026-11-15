@@ -3,6 +3,7 @@ import { ApiClient, Tenant } from '@prisma/client';
 
 export interface RequestWithClient extends Request {
   apiClient: ApiClient;
+  isInternalAdmin?: boolean;
 }
 
 export interface RequestWithTenant extends RequestWithClient {

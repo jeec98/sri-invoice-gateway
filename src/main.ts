@@ -47,6 +47,10 @@ async function bootstrap() {
       'Gestión de Empresas Emisoras y certificados .p12 cifrados con AES-256-GCM',
     )
     .addTag('Invoices', 'Ingesta asíncrona de facturas (<200ms) y consulta de autorización SRI')
+    .addTag(
+      'Taxpayers & SRI Catastro',
+      'Consulta híbrida de contribuyentes SRI y evaluación de elegibilidad de retención',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

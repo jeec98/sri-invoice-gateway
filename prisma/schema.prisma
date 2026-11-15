@@ -88,3 +88,94 @@ model InvoiceJob {
   @@index([status])
   @@map("invoice_jobs")
 }
+
+// ============================================================================
+// Global Public SRI Tax Catalogs & Taxpayer Profile Cache (Tenant-Agnostic)
+// ============================================================================
+
+enum SriCatalogSource {
+  AGENTS
+  SPECIAL
+  RIMPE
+}
+
+enum SriSyncStatus {
+  IDLE
+  SYNCING
+  SUCCEEDED
+  FAILED
+}
+
+enum SriRegimenType {
+  GENERAL
+  RIMPE_EMPRENDEDOR
+  RIMPE_NEGOCIO_POPULAR
+}
+
+model SriCatalogSyncState {
+  source           SriCatalogSource @id
+  packageSlug      String           @map("package_slug") @db.VarChar(120)
+  resourceId       String?          @map("resource_id") @db.VarChar(80)
+  resourceUrl      String?          @map("resource_url") @db.Text
+  etag             String?          @db.VarChar(128)
+  lastModified     String?          @map("last_modified") @db.VarChar(80)
+  remoteModifiedAt String?          @map("remote_modified_at") @db.VarChar(80)
+  contentLength    Int?             @map("content_length")
+  fileSha256       String?          @map("file_sha256") @db.VarChar(64)
+  rowCount         Int              @default(0) @map("row_count")
+  status           SriSyncStatus    @default(IDLE)
+  lastError        String?          @map("last_error") @db.Text
+  lastCheckedAt    DateTime?        @map("last_checked_at")
+  lastSyncedAt     DateTime?        @map("last_synced_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@map("sri_catalog_sync_states")
+}
+
+model SriTaxpayerSpecial {
+  ruc                 String         @id @db.VarChar(13)
+  razonSocial         String?        @map("razon_social") @db.VarChar(300)
+  regimen             SriRegimenType @default(GENERAL)
+  isSpecialTaxpayer   Boolean        @default(false) @map("is_special_taxpayer")
+  specialTaxpayerRes  String?        @map("special_taxpayer_res") @db.VarChar(30)
+  isWithholdingAgent  Boolean        @default(false) @map("is_withholding_agent")
+  withholdingAgentRes String?        @map("withholding_agent_res") @db.VarChar(30)
+  obligatedAccounting Boolean?       @map("obligated_accounting")
+  taxpayerState       String?        @map("taxpayer_state") @db.VarChar(40)
+  inAgentsCatalog     Boolean        @default(false) @map("in_agents_catalog")
+  inSpecialCatalog    Boolean        @default(false) @map("in_special_catalog")
+  inRimpeCatalog      Boolean        @default(false) @map("in_rimpe_catalog")
+  agentsBatchId       String?        @map("agents_batch_id") @db.VarChar(64)
+  specialBatchId      String?        @map("special_batch_id") @db.VarChar(64)
+  rimpeBatchId        String?        @map("rimpe_batch_id") @db.VarChar(64)
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  @@index([regimen])
+  @@index([isWithholdingAgent])
+  @@index([isSpecialTaxpayer])
+  @@map("sri_taxpayer_specials")
+}
+
+model SriTaxpayerProfile {
+  ruc                 String         @id @db.VarChar(13)
+  razonSocial         String         @map("razon_social") @db.VarChar(300)
+  nombreComercial     String?        @map("nombre_comercial") @db.VarChar(300)
+  tipoPersona         String         @map("tipo_persona") @db.VarChar(20)
+  tipoContribuyente   String?        @map("tipo_contribuyente") @db.VarChar(120)
+  regimen             SriRegimenType @default(GENERAL)
+  obligatedAccounting Boolean        @default(false) @map("obligated_accounting")
+  isSpecialTaxpayer   Boolean        @default(false) @map("is_special_taxpayer")
+  specialTaxpayerRes  String?        @map("special_taxpayer_res") @db.VarChar(30)
+  isWithholdingAgent  Boolean        @default(false) @map("is_withholding_agent")
+  withholdingAgentRes String?        @map("withholding_agent_res") @db.VarChar(30)
+  taxpayerState       String         @default("ACTIVO") @map("taxpayer_state") @db.VarChar(40)
+  actividadEconomica  String?        @map("actividad_economica") @db.VarChar(300)
+  direccionMatriz     String?        @map("direccion_matriz") @db.VarChar(300)
+  source              String         @db.VarChar(30)
+  fetchedAt           DateTime       @default(now()) @map("fetched_at")
+  expiresAt           DateTime       @map("expires_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  @@index([expiresAt])
+  @@map("sri_taxpayer_profiles")
+}
