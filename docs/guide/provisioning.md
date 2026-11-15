@@ -15,6 +15,10 @@ Antes de registrar negocios o emitir facturas, debes dar de alta tu plataforma S
   <SaasRegistrationForm />
 </ClientOnly>
 
+::: warning Configuración del formulario web
+El formulario interactivo necesita `VITE_API_BASE_URL` durante la compilación del portal para llamar al endpoint de registro. En la configuración actual, los workflows de Cloudflare Pages y GitHub Pages no inyectan esa variable; por eso el formulario publicado puede mostrar **“Endpoint de API no configurado”**. Mientras se configura en el entorno de compilación de ambos despliegues, registra tu SaaS desde el backend con `POST /v1/api-clients` (ejemplo manual a continuación). Esta variable se incorpora al JavaScript público del sitio: úsala solo para la URL base de la API, nunca para claves o secretos.
+:::
+
 ---
 
 ## Cómo usar tu API Key (Bearer Token)

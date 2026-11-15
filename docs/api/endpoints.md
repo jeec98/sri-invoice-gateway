@@ -1,6 +1,6 @@
 # Referencia de Endpoints REST (v1)
 
-Documentación de todos los endpoints disponibles en `sri-invoice-gateway` para registrar tu plataforma SaaS, dar de alta negocios emisores, subir certificados `.p12` y emitir facturas electrónicas ante el SRI de Ecuador.
+Documentación de los endpoints disponibles en `sri-invoice-gateway` para registrar tu plataforma SaaS, administrar negocios y certificados, consultar perfiles tributarios, evaluar retenciones y emitir comprobantes ante el SRI de Ecuador.
 
 ---
 
@@ -957,6 +957,21 @@ Valida preventivamente el RUC (Módulo 10/11), la firma `.p12` (contraseña, int
 | `ambiente` | `string` | No | `"1"` (Pruebas) o `"2"` (Producción). Por defecto `"1"`. |
 | `establishments` | `array` | No | Lista de sucursales a diagnosticar (`[{ codigo: "001", puntoEmision: "001", activo: true }]`). |
 
+### Envío del certificado como archivo (`multipart/form-data`)
+
+En lugar de convertir el certificado a Base64, el backend de tu SaaS puede enviarlo como archivo. Usa el nombre de campo `p12File` o `file` (son alternativas; el servicio acepta ambos), junto con `ruc` y `password`. El tamaño máximo del archivo es **5 MB**. El archivo se inspecciona en memoria y no se guarda en disco ni en la base de datos.
+
+```bash
+curl -X POST https://sri-invoice-gateway-production.up.railway.app/v1/diagnostics/verify-setup \
+  -H "Authorization: Bearer sri_live_TU_API_KEY" \
+  -F "ruc=1790011674001" \
+  -F "password=CONTRASENA_DE_LA_FIRMA" \
+  -F "ambiente=1" \
+  -F "p12File=@./firma.p12"
+```
+
+Si tu cliente multipart usa `file` en vez de `p12File`, cambia únicamente el nombre del campo del archivo. No establezcas manualmente `Content-Type`; la librería HTTP debe generar el boundary.
+
 ### Respuesta (`200 OK`)
 Devuelve `overallStatus: "READY" | "DEGRADED" | "FAILED"` y la bandera `canIssueInvoices: boolean`, junto con el detalle de cada subsistema y los códigos oficiales del SRI.
 
@@ -1051,4 +1066,122 @@ Endpoint ultraligero diseñado para interfaces de usuario y comprobaciones previ
 | `401 Unauthorized` | API Key ausente o inválida. | `{"statusCode": 401, "message": "MISSING_API_KEY...", "error": "Unauthorized"}` |
 | `403 Forbidden` | El tenant no pertenece a la plataforma SaaS autenticada. | `{"statusCode": 403, "message": "TENANT_ACCESS_DENIED...", "error": "Forbidden"}` |
 | `404 Not Found` | El tenant no existe en el sistema. | `{"statusCode": 404, "message": "Tenant con id \"...\" no encontrado.", "error": "Not Found"}` |
+
+---
+
+## 11. GET /v1/taxpayers/:ruc
+
+**Consultar el perfil tributario de un contribuyente**
+
+Úsalo desde el backend de tu SaaS para completar o verificar datos de compradores y vendedores antes de emitir facturas o retenciones. El servicio valida el RUC y busca los datos en Redis, en los perfiles y catálogos locales sincronizados, y finalmente en la consulta en línea del SRI. La respuesta incluye `source`, `stale` y `degraded` para que tu interfaz informe si los datos son locales, están en caché o no pudieron actualizarse en línea.
+
+| Elemento | Detalle |
+| :--- | :--- |
+| Autenticación | `Authorization: Bearer <apiKey>` |
+| Parámetro de ruta | `ruc`: RUC ecuatoriano de 13 dígitos |
+| Parámetro opcional | `refresh=true`: omite Redis y el perfil base persistido para intentar una consulta actualizada al SRI; los catálogos especiales locales aún complementan la respuesta |
+| Errores relevantes | `400` RUC inválido, `401` API Key ausente o inválida, `429` límite de tasa excedido |
+
+```bash
+curl "https://sri-invoice-gateway-production.up.railway.app/v1/taxpayers/1790016919001" \
+  -H "Authorization: Bearer sri_live_TU_API_KEY"
+```
+
+Respuesta (`200 OK`, ejemplo):
+
+```json
+{
+  "ruc": "1790016919001",
+  "rucValid": true,
+  "razonSocial": "CONTRIBUYENTE DE EJEMPLO",
+  "nombreComercial": null,
+  "tipoPersona": "SOCIEDAD",
+  "regimenTributario": "GENERAL",
+  "obligadoContabilidad": true,
+  "esContribuyenteEspecial": false,
+  "resolucionContribuyenteEspecial": null,
+  "esAgenteRetencion": false,
+  "resolucionAgenteRetencion": null,
+  "estadoContribuyente": "ACTIVO",
+  "actividadEconomica": null,
+  "direccionMatriz": null,
+  "source": "DB_PROFILE",
+  "stale": false,
+  "degraded": false,
+  "syncedAt": "2026-11-15T00:00:00.000Z"
+}
+```
+
+`source` puede ser `REDIS_CACHE`, `DB_PROFILE`, `DB_SPECIAL`, `SRI_LIVE`, `LOCAL_CATALOG_ONLY`, `SYNTAX_ONLY` o `LOCAL_FALLBACK`. No trates una respuesta `stale: true` o `degraded: true` como confirmación de datos vigentes del SRI.
+
+---
+
+## 12. POST /v1/taxpayers/withholding-eligibility
+
+**Evaluar si corresponde aplicar retención**
+
+Evalúa los perfiles del comprador y del vendedor mediante las reglas tributarias configuradas en el servicio. Se recomienda invocarlo desde el backend del SaaS antes de preparar el comprobante; usa la respuesta para orientar el flujo y conserva los perfiles y reglas que se aplicaron.
+
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :--- | :--- |
+| `buyerRuc` | `string` | **Sí** | RUC de 13 dígitos del comprador. |
+| `sellerRuc` | `string` | **Sí** | RUC de 13 dígitos del vendedor. |
+| `codDocSustento` | `string` | No | Código de documento entre `"01"` y `"05"`; si se omite, se usa `"01"`. `"03"` activa la regla de Liquidación de Compra. |
+| `emitirCeroInformativa` | `boolean` | No | Por defecto `false`; indica si tu SaaS emitirá la retención informativa al 0% en el caso RIMPE Negocio Popular. |
+| `buyerProfileOverride` / `sellerProfileOverride` | `object` | No | Permite aportar campos del perfil cuando tu sistema mantiene una corrección o dato validado. Los valores sobrescriben el perfil consultado para esta evaluación. |
+
+Ejemplo:
+
+```bash
+curl -X POST https://sri-invoice-gateway-production.up.railway.app/v1/taxpayers/withholding-eligibility \
+  -H "Authorization: Bearer sri_live_TU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "buyerRuc": "1790016919001",
+    "sellerRuc": "1790011674001",
+    "codDocSustento": "01"
+  }'
+```
+
+La respuesta contiene los perfiles `buyer` y `seller`, `whoWithholds` (`BUYER_WITHHOLDS`, `NEITHER` o `BUYER_ON_LIQUIDACION`), `obligatorioRenta`, `obligatorioIva`, `applyRetention`, `reasonCode`, `motivoLegal` y `reglasAplicables`. Por ejemplo, la decisión incluye campos como:
+
+```json
+{
+  "whoWithholds": "BUYER_WITHHOLDS",
+  "obligatorioRenta": true,
+  "obligatorioIva": true,
+  "aplicaRetencionIvaEntreEspeciales": false,
+  "reglasAplicables": ["RENTA_GENERAL", "IVA_30_70_100"],
+  "applyRetention": true,
+  "zeroInformativePolicy": false,
+  "reasonCode": "BUYER_AGENT_WITHHOLDS"
+}
+```
+
+La respuesta completa también incluye los perfiles `buyer` y `seller`. Los errores habituales son `400` (RUC o payload inválido), `401` (API Key ausente o inválida) y `429` (límite de tasa excedido). El resultado es una evaluación automatizada basada en los datos disponibles: revísalo con las reglas vigentes de tu operación tributaria antes de emitir.
+
+---
+
+## 13. POST /v1/taxpayers/sync
+
+**Solicitar sincronización de catálogos oficiales SRI**
+
+Este endpoint operativo encola una sincronización asíncrona de los catálogos de Agentes de Retención, Contribuyentes Especiales o RIMPE. No forma parte del flujo cotidiano de un SaaS y no debe exponerse desde el frontend.
+
+```bash
+curl -X POST https://sri-invoice-gateway-production.up.railway.app/v1/taxpayers/sync \
+  -H "Authorization: Bearer sri_live_CREDENCIAL_INTERNA" \
+  -H "X-Internal-Key: CLAVE_INTERNA_CONFIGURADA_EN_EL_SERVIDOR" \
+  -H "Content-Type: application/json" \
+  -d '{ "source": "ALL", "force": false }'
+```
+
+| Campo | Tipo | Valores |
+| :--- | :--- | :--- |
+| `source` | `string` | `ALL` (por defecto), `AGENTS`, `SPECIAL` o `RIMPE`. |
+| `force` | `boolean` | Por defecto `false`. Solo una credencial interna/administrativa puede usar `true` para omitir el cooldown. |
+
+En producción se requiere una API Key asociada a un plan `INTERNAL`/`ADMIN` o la clave del servidor `SRI_INTERNAL_ADMIN_KEY` en el encabezado `X-Internal-Key` (también se acepta `X-Admin-Key`). Una API Key SaaS normal recibe `403 Forbidden`. Si la solicitud queda en cola, responde `202 Accepted` con `queued: true`; una sincronización ya activa se deduplica (`queued: false`, `deduplicated: true`). El cooldown por fuente es de 15 minutos; una solicitud durante ese periodo puede responder `429 Too Many Requests`.
+
+Los errores posibles incluyen `400` (parámetros inválidos), `401` (API Key ausente o inválida), `403` (credenciales sin privilegios internos) y `429` (límite de tasa o cooldown activo). La clave interna es solo para llamadas backend a backend; no la incluyas en una aplicación web pública.
 

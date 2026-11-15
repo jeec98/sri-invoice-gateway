@@ -185,6 +185,21 @@ curl -X POST https://sri-gateway.tu-dominio.com/v1/diagnostics/verify-setup \
   }'
 ```
 
+### Enviar el certificado como archivo
+
+El endpoint también acepta `multipart/form-data`: envía el archivo `.p12` en el campo `p12File` o `file` (usa uno de los dos), junto con los campos `ruc` y `password`. El archivo no se persiste y el máximo permitido es 5 MB.
+
+```bash
+curl -X POST https://sri-gateway.tu-dominio.com/v1/diagnostics/verify-setup \
+  -H "Authorization: Bearer sri_live_TU_API_KEY" \
+  -F "ruc=1790016919001" \
+  -F "password=CONTRASENA_DE_LA_FIRMA" \
+  -F "ambiente=1" \
+  -F "file=@./firma.p12"
+```
+
+En una integración desde navegador, no expongas credenciales de firma ni la API Key del SaaS al cliente final; realiza esta petición desde tu backend.
+
 ### Respuesta JSON
 ```json
 {
