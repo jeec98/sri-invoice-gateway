@@ -13,6 +13,7 @@ import { SRI_INVOICE_QUEUE } from '../invoices/invoices.constants';
 import {
   SriAutorizacionResult,
   SriMessage,
+  SriRecepcionResult,
   SriSoapClientService,
 } from '../sri-soap/sri-soap-client.service';
 import { WebhookService } from '../webhook/webhook.service';
@@ -138,10 +139,29 @@ export class InvoiceQueueConsumer extends WorkerHost {
       });
 
       // 5. Send signed XML to SRI SOAP Recepción (validarComprobante)
-      const recepcionResult = await this.sriSoapClient.validarComprobante(
-        signedXml,
-        invoiceJob.ambiente,
-      );
+      let recepcionResult: SriRecepcionResult;
+      try {
+        recepcionResult = await this.sriSoapClient.validarComprobante(
+          signedXml,
+          invoiceJob.ambiente,
+        );
+      } catch (recError: unknown) {
+        if (this.sriSoapClient.isTransientSriError(recError)) {
+          this.logger.warn(
+            `Fallo transitorio en Recepción SRI para clave ${claveAcceso}. Aplicando Regla de Oro (consulta directa de Autorización)...`,
+          );
+          await this.handleReceptionTransientError({
+            invoiceJobId,
+            referenceId: invoiceJob.referenceId,
+            claveAcceso,
+            ambiente: invoiceJob.ambiente,
+            webhookUrl: effectiveWebhookUrl,
+            error: recError,
+          });
+          return;
+        }
+        throw recError;
+      }
 
       if (recepcionResult.estado !== 'RECIBIDA') {
         // DEVUELTA
@@ -203,7 +223,20 @@ export class InvoiceQueueConsumer extends WorkerHost {
         return;
       }
 
-      const finalStatus = authResult.estado === 'EN PROCESO' ? 'EN_PROCESO' : 'NO_AUTORIZADO';
+      if (authResult.estado === 'EN PROCESO') {
+        await this.prisma.invoiceJob.update({
+          where: { id: invoiceJobId },
+          data: {
+            status: 'EN_PROCESO',
+            numeroAutorizacion: authResult.numeroAutorizacion,
+            fechaAutorizacion: authResult.fechaAutorizacion
+              ? new Date(authResult.fechaAutorizacion)
+              : undefined,
+            sriMessages: authResult.mensajes as unknown as Prisma.InputJsonValue,
+          },
+        });
+        return;
+      }
 
       await this.finalizeAndNotify({
         invoiceJobId,
@@ -211,7 +244,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
         claveAcceso,
         ambiente: invoiceJob.ambiente,
         webhookUrl: effectiveWebhookUrl,
-        status: finalStatus,
+        status: 'NO_AUTORIZADO',
         numeroAutorizacion: authResult.numeroAutorizacion,
         fechaAutorizacion: authResult.fechaAutorizacion,
         sriMessages: authResult.mensajes,
@@ -221,6 +254,27 @@ export class InvoiceQueueConsumer extends WorkerHost {
       if (ephemeralP12Buffer) {
         ephemeralP12Buffer.fill(0);
         ephemeralP12Buffer = null;
+      }
+
+      if (this.sriSoapClient.isTransientSriError(error)) {
+        this.logger.warn(
+          `Error transitorio capturado en procesamiento para clave ${claveAcceso}. Preservando EN_PROCESO sin webhook: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        const transientNote: SriMessage[] = [
+          {
+            identificador: 'SRI_TRANSIENT_ERROR',
+            mensaje: error instanceof Error ? error.message : String(error),
+            tipo: 'ADVERTENCIA',
+          },
+        ];
+        await this.prisma.invoiceJob.update({
+          where: { id: invoiceJobId },
+          data: {
+            status: 'EN_PROCESO',
+            sriMessages: transientNote as unknown as Prisma.InputJsonValue,
+          },
+        });
+        return;
       }
 
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -246,6 +300,80 @@ export class InvoiceQueueConsumer extends WorkerHost {
         sriMessages: failureMessages,
       });
     }
+  }
+
+  private async handleReceptionTransientError(params: {
+    invoiceJobId: string;
+    referenceId: string;
+    claveAcceso: string;
+    ambiente: string;
+    webhookUrl: string;
+    error: unknown;
+  }): Promise<void> {
+    const { invoiceJobId, referenceId, claveAcceso, ambiente, webhookUrl, error } = params;
+
+    let authResult: SriAutorizacionResult | null = null;
+    try {
+      authResult = await this.sriSoapClient.autorizacionComprobante(claveAcceso, ambiente);
+    } catch (authError: unknown) {
+      if (this.sriSoapClient.isTransientSriError(authError)) {
+        this.logger.warn(
+          `Autorización SRI también falló transitoriamente para clave ${claveAcceso}. Preservando EN_PROCESO sin webhook.`,
+        );
+        const transientNote: SriMessage[] = [
+          {
+            identificador: 'SRI_TRANSIENT_UNAVAILABLE',
+            mensaje:
+              'Recepción y Autorización SRI inaccesibles temporalmente por problemas de red o indisponibilidad del servicio.',
+            tipo: 'ADVERTENCIA',
+          },
+        ];
+        await this.prisma.invoiceJob.update({
+          where: { id: invoiceJobId },
+          data: {
+            status: 'EN_PROCESO',
+            sriMessages: transientNote as unknown as Prisma.InputJsonValue,
+          },
+        });
+        return;
+      }
+      throw authError;
+    }
+
+    if (authResult?.estado === 'AUTORIZADO') {
+      await this.finalizeAndNotify({
+        invoiceJobId,
+        referenceId,
+        claveAcceso,
+        ambiente,
+        webhookUrl,
+        status: 'AUTORIZADO',
+        numeroAutorizacion: authResult.numeroAutorizacion || claveAcceso,
+        fechaAutorizacion: authResult.fechaAutorizacion,
+        authorizedXml: authResult.authorizedXml || authResult.comprobanteXml,
+        sriMessages: authResult.mensajes,
+      });
+      return;
+    }
+
+    const recErrorMsg = error instanceof Error ? error.message : String(error);
+    const pendingMessages: SriMessage[] = [
+      ...(authResult?.mensajes || []),
+      {
+        identificador: 'SRI_RECEPTION_PENDING',
+        mensaje: `Documento en procesamiento en el SRI tras reintento por incidencia de recepción: ${recErrorMsg}`,
+        tipo: 'INFO',
+      },
+    ];
+
+    await this.prisma.invoiceJob.update({
+      where: { id: invoiceJobId },
+      data: {
+        status: 'EN_PROCESO',
+        numeroAutorizacion: authResult?.numeroAutorizacion || null,
+        sriMessages: pendingMessages as unknown as Prisma.InputJsonValue,
+      },
+    });
   }
 
   private async finalizeAndNotify(params: {

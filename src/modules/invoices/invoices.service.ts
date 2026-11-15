@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -13,6 +12,26 @@ import { AccessKeyService } from './services/access-key.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { CreateRetentionDto } from './dto/create-retention.dto';
 import { PROCESS_INVOICE_JOB, SRI_INVOICE_QUEUE } from './invoices.constants';
+
+export interface EnqueueDocumentResult {
+  success: boolean;
+  isNew: boolean;
+  isRetry: boolean;
+  jobId: string;
+  referenceId: string;
+  claveAcceso: string;
+  ambiente?: string;
+  status: string;
+  numeroAutorizacion?: string | null;
+  fechaAutorizacion?: Date | null;
+  sriMessages?: unknown;
+  signedXml?: string | null;
+  authorizedXml?: string | null;
+  webhookDelivered?: boolean;
+  webhookResponseStatus?: number | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
 
 @Injectable()
 export class InvoicesService {
@@ -75,9 +94,47 @@ export class InvoicesService {
     });
 
     if (existingJob) {
-      throw new ConflictException(
-        `DUPLICATE_REFERENCE_ID: Ya existe un comprobante registrado con referenceId "${dto.referenceId}" (claveAcceso: ${existingJob.claveAcceso}).`,
+      if (existingJob.status !== 'FAILED') {
+        return this.mapToEnqueueResult(existingJob, {
+          isNew: false,
+          isRetry: false,
+        });
+      }
+
+      const resolvedWebhookUrl =
+        dto.webhookUrl || apiClient?.webhookUrl || existingJob.webhookUrl || '';
+
+      const updatedJob = await this.prisma.invoiceJob.update({
+        where: { id: existingJob.id },
+        data: {
+          status: 'QUEUED',
+          attempts: 0,
+          sriMessages: Prisma.DbNull,
+          webhookUrl: resolvedWebhookUrl,
+          payloadJson: dto as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      const retryJobId = `${existingJob.id}-retry-${Date.now()}`;
+      const bullJob = await this.invoiceQueue.add(
+        PROCESS_INVOICE_JOB,
+        {
+          invoiceJobId: existingJob.id,
+          tenantId: tenant.id,
+          claveAcceso: existingJob.claveAcceso,
+        },
+        {
+          jobId: retryJobId,
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
       );
+
+      return this.mapToEnqueueResult(updatedJob, {
+        isNew: false,
+        isRetry: true,
+        queueJobId: String(bullJob?.id || retryJobId),
+      });
     }
 
     const claveAcceso = this.accessKeyService.generateAccessKey({
@@ -120,12 +177,35 @@ export class InvoicesService {
       },
     );
 
+    return this.mapToEnqueueResult(invoiceJob, {
+      isNew: true,
+      isRetry: false,
+      queueJobId: String(bullJob?.id || invoiceJob.id),
+    });
+  }
+
+  private mapToEnqueueResult(
+    job: InvoiceJob,
+    options: { isNew: boolean; isRetry: boolean; queueJobId?: string },
+  ): EnqueueDocumentResult {
     return {
       success: true,
-      jobId: String(bullJob?.id || invoiceJob.id),
-      referenceId: invoiceJob.referenceId,
-      claveAcceso,
-      status: 'QUEUED',
+      isNew: options.isNew,
+      isRetry: options.isRetry,
+      jobId: options.queueJobId || job.id,
+      referenceId: job.referenceId,
+      claveAcceso: job.claveAcceso,
+      ambiente: job.ambiente,
+      status: job.status,
+      numeroAutorizacion: job.numeroAutorizacion,
+      fechaAutorizacion: job.fechaAutorizacion,
+      sriMessages: job.sriMessages,
+      signedXml: job.signedXml,
+      authorizedXml: job.authorizedXml,
+      webhookDelivered: job.webhookDelivered,
+      webhookResponseStatus: job.webhookResponseStatus,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
     };
   }
 

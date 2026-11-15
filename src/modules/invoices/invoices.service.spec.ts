@@ -5,7 +5,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { ApiClient, Certificate, Tenant } from '@prisma/client';
+import { ApiClient, Certificate, Prisma, Tenant } from '@prisma/client';
 import { InvoicesService } from './invoices.service';
 import { AccessKeyService } from './services/access-key.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -22,6 +22,7 @@ describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', 
     invoiceJob: {
       findFirst: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
     };
     tenant: {
       findFirst: ReturnType<typeof vi.fn>;
@@ -119,6 +120,7 @@ describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', 
       invoiceJob: {
         findFirst: vi.fn(),
         create: vi.fn(),
+        update: vi.fn(),
       },
       tenant: {
         findFirst: vi.fn(),
@@ -145,6 +147,8 @@ describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', 
 
       expect(durationMs).toBeLessThan(200);
       expect(result.success).toBe(true);
+      expect(result.isNew).toBe(true);
+      expect(result.isRetry).toBe(false);
       expect(result.status).toBe('QUEUED');
       expect(result.referenceId).toBe('INV-2026-001');
       expect(result.claveAcceso).toMatch(/^\d{49}$/);
@@ -242,18 +246,178 @@ describe('InvoicesService — Hierarchical Ingestion & Multi-Tenant Isolation', 
       expect(queueMock.add).not.toHaveBeenCalled();
     });
 
-    it('should throw ConflictException (DUPLICATE_REFERENCE_ID) on duplicate referenceId for same tenant', async () => {
-      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce({
+    it('should return existing document metadata with isNew: false, isRetry: false when re-submitting document in PROCESSING status without enqueuing or mutating DB', async () => {
+      const existingJob = {
         id: 'existing-job-id',
+        tenantId: mockTenant.id,
+        referenceId: validDto.referenceId,
         claveAcceso: '0711202601179001167400110010010000001231234567815',
-      });
+        ambiente: '1',
+        status: 'PROCESSING',
+        numeroAutorizacion: null,
+        fechaAutorizacion: null,
+        sriMessages: null,
+        signedXml: '<signedXml/>',
+        authorizedXml: null,
+        webhookDelivered: false,
+        webhookResponseStatus: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(existingJob);
 
-      await expect(service.createInvoice(mockTenant, validDto, mockClient)).rejects.toThrow(
-        ConflictException,
-      );
+      const result = await service.createInvoice(mockTenant, validDto, mockClient);
+
+      expect(result.success).toBe(true);
+      expect(result.isNew).toBe(false);
+      expect(result.isRetry).toBe(false);
+      expect(result.jobId).toBe(existingJob.id);
+      expect(result.referenceId).toBe(existingJob.referenceId);
+      expect(result.claveAcceso).toBe(existingJob.claveAcceso);
+      expect(result.status).toBe('PROCESSING');
 
       expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(prismaMock.invoiceJob.update).not.toHaveBeenCalled();
       expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should return existing document with authorization metadata and isNew: false, isRetry: false when re-submitting AUTORIZADO invoice', async () => {
+      const authDate = new Date('2026-11-07T14:30:00Z');
+      const existingJob = {
+        id: 'authorized-job-id',
+        tenantId: mockTenant.id,
+        referenceId: validDto.referenceId,
+        claveAcceso: '0711202601179001167400110010010000001231234567815',
+        ambiente: '1',
+        status: 'AUTORIZADO',
+        numeroAutorizacion: '0711202601179001167400110010010000001231234567815',
+        fechaAutorizacion: authDate,
+        sriMessages: [],
+        signedXml: '<signedXml/>',
+        authorizedXml: '<authorizedXml/>',
+        webhookDelivered: true,
+        webhookResponseStatus: 200,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(existingJob);
+
+      const result = await service.createInvoice(mockTenant, validDto, mockClient);
+
+      expect(result.success).toBe(true);
+      expect(result.isNew).toBe(false);
+      expect(result.isRetry).toBe(false);
+      expect(result.jobId).toBe('authorized-job-id');
+      expect(result.status).toBe('AUTORIZADO');
+      expect(result.numeroAutorizacion).toBe(existingJob.numeroAutorizacion);
+      expect(result.fechaAutorizacion).toBe(authDate);
+      expect(result.authorizedXml).toBe('<authorizedXml/>');
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(prismaMock.invoiceJob.update).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should return existing document with isNew: false, isRetry: false and sriMessages when re-submitting DEVUELTA document', async () => {
+      const existingJob = {
+        id: 'devuelta-job-id',
+        tenantId: mockTenant.id,
+        referenceId: validDto.referenceId,
+        claveAcceso: '0711202601179001167400110010010000001231234567815',
+        ambiente: '1',
+        status: 'DEVUELTA',
+        numeroAutorizacion: null,
+        fechaAutorizacion: null,
+        sriMessages: [{ identificador: '35', mensaje: 'DOCUMENTO YA AUTORIZADO' }],
+        signedXml: '<signedXml/>',
+        authorizedXml: null,
+        webhookDelivered: true,
+        webhookResponseStatus: 200,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(existingJob);
+
+      const result = await service.createInvoice(mockTenant, validDto, mockClient);
+
+      expect(result.success).toBe(true);
+      expect(result.isNew).toBe(false);
+      expect(result.isRetry).toBe(false);
+      expect(result.status).toBe('DEVUELTA');
+      expect(result.sriMessages).toEqual([
+        { identificador: '35', mensaje: 'DOCUMENTO YA AUTORIZADO' },
+      ]);
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(prismaMock.invoiceJob.update).not.toHaveBeenCalled();
+      expect(queueMock.add).not.toHaveBeenCalled();
+    });
+
+    it('should reactivate a FAILED document preserving exact claveAcceso, resetting attempts: 0, clearing sriMessages, enqueuing retry job, and returning isNew: false, isRetry: true', async () => {
+      const existingFailedJob = {
+        id: 'failed-job-id',
+        tenantId: mockTenant.id,
+        referenceId: validDto.referenceId,
+        codDoc: '01',
+        claveAcceso: '0711202601179001167400110010010000001231234567815',
+        ambiente: '1',
+        status: 'FAILED',
+        attempts: 3,
+        numeroAutorizacion: null,
+        fechaAutorizacion: null,
+        sriMessages: [{ error: 'fatal' }],
+        signedXml: '<signedXml/>',
+        authorizedXml: null,
+        webhookUrl: 'https://saas.example.com/old-webhook',
+        webhookDelivered: true,
+        webhookResponseStatus: 500,
+        createdAt: new Date('2026-11-07T10:00:00Z'),
+        updatedAt: new Date('2026-11-07T10:05:00Z'),
+      };
+      prismaMock.invoiceJob.findFirst.mockResolvedValueOnce(existingFailedJob);
+      prismaMock.invoiceJob.update.mockImplementationOnce(async ({ data }) => ({
+        ...existingFailedJob,
+        ...data,
+        updatedAt: new Date(),
+      }));
+      queueMock.add.mockImplementationOnce(async (_name, _data, opts) => ({
+        id: opts?.jobId || 'retry-job-id',
+      }));
+
+      const result = await service.createInvoice(mockTenant, validDto, mockClient);
+
+      expect(result.success).toBe(true);
+      expect(result.isNew).toBe(false);
+      expect(result.isRetry).toBe(true);
+      expect(result.status).toBe('QUEUED');
+      expect(result.referenceId).toBe(validDto.referenceId);
+      expect(result.claveAcceso).toBe('0711202601179001167400110010010000001231234567815');
+      expect(result.jobId).toMatch(/^failed-job-id-retry-\d+$/);
+
+      expect(prismaMock.invoiceJob.create).not.toHaveBeenCalled();
+      expect(prismaMock.invoiceJob.update).toHaveBeenCalledWith({
+        where: { id: existingFailedJob.id },
+        data: expect.objectContaining({
+          status: 'QUEUED',
+          attempts: 0,
+          sriMessages: Prisma.DbNull,
+          webhookUrl: 'https://saas.example.com/custom-webhook',
+        }),
+      });
+
+      expect(queueMock.add).toHaveBeenCalledWith(
+        'process-sri-invoice',
+        {
+          invoiceJobId: existingFailedJob.id,
+          tenantId: mockTenant.id,
+          claveAcceso: existingFailedJob.claveAcceso,
+        },
+        expect.objectContaining({
+          jobId: expect.stringMatching(/^failed-job-id-retry-\d+$/),
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        }),
+      );
     });
 
     it('should block cross-tenant invoice ingestion via TenantAccessGuard with 403 TENANT_ACCESS_DENIED', async () => {

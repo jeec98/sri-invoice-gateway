@@ -323,4 +323,42 @@ export class SriSoapClientService {
     const text = nodes[0].textContent;
     return text ? text.trim() : null;
   }
+
+  /**
+   * Categorizes an error as transient (network, socket timeout, 5xx) vs non-transient (semantic/4xx/crypto).
+   */
+  isTransientSriError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    // Axios network/timeout codes or Node.js system socket codes
+    const code = (error as { code?: string }).code;
+    const transientCodes = [
+      'ECONNABORTED',
+      'ETIMEDOUT',
+      'ECONNRESET',
+      'ECONNREFUSED',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'ERR_SOCKET_TIMEOUT',
+    ];
+    if (code && transientCodes.includes(code)) {
+      return true;
+    }
+
+    // Axios HTTP responses with status >= 500
+    const responseStatus = (error as { response?: { status?: number } }).response?.status;
+    if (typeof responseStatus === 'number' && responseStatus >= 500) {
+      return true;
+    }
+
+    // String message inspection for timeout indicators
+    const message = (error as { message?: string }).message?.toLowerCase() || '';
+    if (message.includes('timeout') || message.includes('timed out')) {
+      return true;
+    }
+
+    return false;
+  }
 }

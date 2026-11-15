@@ -134,4 +134,66 @@ describe('SriSoapClientService', () => {
       expect(conn.issues.some((i) => i.code === 'SRI_SOAP_TIMEOUT')).toBe(true);
     });
   });
+
+  describe('isTransientSriError', () => {
+    it('should return true for network and socket errors (ECONNABORTED, ETIMEDOUT, ECONNRESET, ECONNREFUSED, ENOTFOUND, EAI_AGAIN, ERR_SOCKET_TIMEOUT)', () => {
+      const socketErrors = [
+        'ECONNABORTED',
+        'ETIMEDOUT',
+        'ECONNRESET',
+        'ECONNREFUSED',
+        'ENOTFOUND',
+        'EAI_AGAIN',
+        'ERR_SOCKET_TIMEOUT',
+      ];
+
+      for (const code of socketErrors) {
+        const error = Object.assign(new Error(`Socket error ${code}`), { code });
+        expect(service.isTransientSriError(error)).toBe(true);
+      }
+    });
+
+    it('should return true for HTTP 5xx responses (500, 502, 503, 504)', () => {
+      const statusCodes = [500, 502, 503, 504];
+
+      for (const status of statusCodes) {
+        const error = {
+          name: 'AxiosError',
+          message: `Request failed with status code ${status}`,
+          response: { status },
+        };
+        expect(service.isTransientSriError(error)).toBe(true);
+      }
+    });
+
+    it('should return true for timeout string messages', () => {
+      const timeoutErrors = [
+        new Error('timeout of 25000ms exceeded'),
+        new Error('Connection timed out'),
+        new Error('Gateway Timeout occurred'),
+      ];
+
+      for (const error of timeoutErrors) {
+        expect(service.isTransientSriError(error)).toBe(true);
+      }
+    });
+
+    it('should return false for 4xx client errors, cryptographic failures, schema errors, or undefined/null', () => {
+      expect(service.isTransientSriError(null)).toBe(false);
+      expect(service.isTransientSriError(undefined)).toBe(false);
+
+      const client4xxError = {
+        name: 'AxiosError',
+        response: { status: 400 },
+        message: 'Bad Request',
+      };
+      expect(service.isTransientSriError(client4xxError)).toBe(false);
+
+      const cryptoError = new Error('INVALID_CERTIFICATE_PASSWORD: MAC verification failed');
+      expect(service.isTransientSriError(cryptoError)).toBe(false);
+
+      const xmlError = new Error('XML parsing error: unclosed tag <factura>');
+      expect(service.isTransientSriError(xmlError)).toBe(false);
+    });
+  });
 });

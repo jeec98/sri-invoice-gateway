@@ -7,8 +7,10 @@ import {
   HttpStatus,
   Param,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApiClient, Tenant } from '@prisma/client';
 import { ApiKeyGuard } from '../tenants/guards/api-key.guard';
@@ -18,6 +20,7 @@ import { CurrentTenant } from '../tenants/decorators/current-tenant.decorator';
 import { CurrentApiClient } from '../api-clients/decorators/current-client.decorator';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { InvoicesService } from './invoices.service';
+import { resolveEnqueueHttpStatus } from './invoices.constants';
 
 @ApiTags('Invoices')
 @ApiBearerAuth()
@@ -27,7 +30,6 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Post()
-  @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
     summary:
       'Generar Clave de Acceso (49 dígitos) y encolar factura para firma XAdES-BES y autorización asíncrona en el SRI (<200ms)',
@@ -40,8 +42,13 @@ export class InvoicesController {
     type: String,
   })
   @ApiResponse({
+    status: 200,
+    description: 'Comprobante existente activo o autorizado retornado de forma idempotente',
+  })
+  @ApiResponse({
     status: 202,
-    description: 'Factura aceptada y encolada exitosamente en BullMQ',
+    description:
+      'Comprobante nuevo o comprobante FAILED reactivado y encolado exitosamente en BullMQ',
   })
   @ApiResponse({
     status: 400,
@@ -52,17 +59,15 @@ export class InvoicesController {
     description:
       'RUC_MISMATCH: El RUC del emisor no coincide con el RUC del tenant, o TENANT_ACCESS_DENIED',
   })
-  @ApiResponse({
-    status: 409,
-    description:
-      'DUPLICATE_REFERENCE_ID: Ya existe un comprobante con ese referenceId para este tenant',
-  })
   async createInvoice(
     @CurrentTenant() tenant: Tenant,
     @CurrentApiClient() apiClient: ApiClient,
     @Body() dto: CreateInvoiceDto,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.invoicesService.createInvoice(tenant, dto, apiClient);
+    const result = await this.invoicesService.createInvoice(tenant, dto, apiClient);
+    res.status(resolveEnqueueHttpStatus(result));
+    return result;
   }
 
   @Get(':claveAcceso')

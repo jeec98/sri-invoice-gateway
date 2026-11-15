@@ -668,7 +668,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
 
     createdClaveAcceso = postBody.claveAcceso;
 
-    // 6c. Reject duplicate referenceId (409 Conflict)
+    // 6c. Idempotent re-submission returns 200 OK with isNew: false, isRetry: false, and preserves claveAcceso
     const dupRes = await fetch(`${baseUrl}/tenants/${tenantAId}/invoices`, {
       method: 'POST',
       headers: {
@@ -677,7 +677,64 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       },
       body: JSON.stringify(validInvoicePayload),
     });
-    expect(dupRes.status).toBe(409);
+    expect(dupRes.status).toBe(200);
+    const dupBody = (await dupRes.json()) as {
+      success: boolean;
+      isNew: boolean;
+      isRetry: boolean;
+      claveAcceso: string;
+      referenceId: string;
+    };
+    expect(dupBody.success).toBe(true);
+    expect(dupBody.isNew).toBe(false);
+    expect(dupBody.isRetry).toBe(false);
+    expect(dupBody.claveAcceso).toBe(createdClaveAcceso);
+    expect(dupBody.referenceId).toBe('FAC-E2E-ALPHA-0001');
+
+    // 6d. Re-submitting a FAILED invoice reactivates it with 202 Accepted, isNew: false, isRetry: true, and preserves claveAcceso
+    const failedRefId = 'FAC-E2E-ALPHA-FAILED-0001';
+    const failedClaveAcceso = '0911202601179001167400110010010000009991234567812';
+    await prisma.invoiceJob.create({
+      data: {
+        tenantId: tenantAId,
+        referenceId: failedRefId,
+        codDoc: '01',
+        claveAcceso: failedClaveAcceso,
+        ambiente: '1',
+        status: 'FAILED',
+        attempts: 3,
+        webhookUrl: `http://127.0.0.1:${webhookPort}/webhooks/sri`,
+        payloadJson: { ...validInvoicePayload, referenceId: failedRefId, secuencial: '000000999' },
+      },
+    });
+
+    const retryRes = await fetch(`${baseUrl}/tenants/${tenantAId}/invoices`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKeyClientA}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...validInvoicePayload,
+        referenceId: failedRefId,
+        secuencial: '000000999',
+      }),
+    });
+    expect(retryRes.status).toBe(202);
+    const retryBody = (await retryRes.json()) as {
+      success: boolean;
+      isNew: boolean;
+      isRetry: boolean;
+      claveAcceso: string;
+      referenceId: string;
+      status: string;
+    };
+    expect(retryBody.success).toBe(true);
+    expect(retryBody.isNew).toBe(false);
+    expect(retryBody.isRetry).toBe(true);
+    expect(retryBody.status).toBe('QUEUED');
+    expect(retryBody.claveAcceso).toBe(failedClaveAcceso);
+    expect(retryBody.referenceId).toBe(failedRefId);
   });
 
   it('Step 7: GET /v1/tenants/:tenantId/invoices/:claveAcceso — Query isolation, worker processing, and HMAC Webhook', async () => {

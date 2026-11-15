@@ -30,6 +30,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
     signXml: ReturnType<typeof vi.fn>;
   };
   let sriSoapMock: {
+    isTransientSriError: ReturnType<typeof vi.fn>;
     validarComprobante: ReturnType<typeof vi.fn>;
     autorizacionComprobante: ReturnType<typeof vi.fn>;
   };
@@ -102,6 +103,8 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
             callOrder.push('db:persist-authorized');
           } else if (data.status === 'FAILED') {
             callOrder.push('db:persist-failed');
+          } else if (data.status === 'EN_PROCESO') {
+            callOrder.push('db:persist-en-proceso');
           } else if (data.webhookDelivered !== undefined) {
             callOrder.push('db:persist-webhook-status');
           }
@@ -128,6 +131,24 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
       signXml: vi.fn().mockReturnValue('<factura id="comprobante"><ds:Signature/></factura>'),
     };
     sriSoapMock = {
+      isTransientSriError: vi.fn().mockImplementation((err) => {
+        if (!err) return false;
+        const code = (err as { code?: string }).code;
+        const transientCodes = [
+          'ECONNABORTED',
+          'ETIMEDOUT',
+          'ECONNRESET',
+          'ECONNREFUSED',
+          'ENOTFOUND',
+          'EAI_AGAIN',
+          'ERR_SOCKET_TIMEOUT',
+        ];
+        if (code && transientCodes.includes(code)) return true;
+        const status = (err as { response?: { status?: number } }).response?.status;
+        if (typeof status === 'number' && status >= 500) return true;
+        const msg = (err as { message?: string }).message?.toLowerCase() || '';
+        return msg.includes('timeout');
+      }),
       validarComprobante: vi.fn().mockResolvedValue({
         estado: 'RECIBIDA',
         mensajes: [],
@@ -295,5 +316,94 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
       expect.any(Buffer),
       'decrypted-cert-password',
     );
+  });
+
+  describe('SRI Golden Rule on Transient Errors', () => {
+    it('should execute Golden Rule when validarComprobante throws transient error (ETIMEDOUT): verify authorization directly, recover AUTORIZADO state, dispatch success webhook, and NOT mark FAILED', async () => {
+      const timeoutError = Object.assign(new Error('timeout of 25000ms exceeded'), {
+        code: 'ETIMEDOUT',
+      });
+      sriSoapMock.validarComprobante.mockRejectedValueOnce(timeoutError);
+      sriSoapMock.autorizacionComprobante.mockResolvedValueOnce({
+        estado: 'AUTORIZADO',
+        numeroAutorizacion: '0711202601179001167400110010010000001231234567815',
+        fechaAutorizacion: '2026-11-07T12:00:00-05:00',
+        authorizedXml: '<autorizacion><estado>AUTORIZADO</estado></autorizacion>',
+        mensajes: [],
+        rawXml: '',
+      });
+
+      const job = { data: mockJobData } as Job<InvoiceQueueJobData>;
+
+      await consumer.process(job);
+
+      expect(sriSoapMock.autorizacionComprobante).toHaveBeenCalledWith(
+        mockJobData.claveAcceso,
+        '1',
+      );
+      expect(callOrder).toEqual([
+        'db:persist-authorized',
+        'webhook:dispatch',
+        'db:persist-webhook-status',
+      ]);
+      expect(callOrder).not.toContain('db:persist-failed');
+      expect(webhookMock.dispatch).toHaveBeenCalledWith(
+        'https://saas.example.com/custom-webhook',
+        expect.objectContaining({
+          event: 'sri.invoice.completed',
+          status: 'AUTORIZADO',
+          numeroAutorizacion: '0711202601179001167400110010010000001231234567815',
+        }),
+      );
+    });
+
+    it('should preserve EN_PROCESO and dispatch NO webhook when validarComprobante fails transitorily and autorizacionComprobante returns EN PROCESO', async () => {
+      const http500Error = {
+        name: 'AxiosError',
+        message: 'Request failed with status code 500',
+        response: { status: 500 },
+      };
+      sriSoapMock.validarComprobante.mockRejectedValueOnce(http500Error);
+      sriSoapMock.autorizacionComprobante.mockResolvedValueOnce({
+        estado: 'EN PROCESO',
+        mensajes: [
+          { identificador: 'INFO', mensaje: 'Comprobante en procesamiento', tipo: 'INFO' },
+        ],
+        rawXml: '',
+      });
+
+      const job = { data: mockJobData } as Job<InvoiceQueueJobData>;
+
+      await consumer.process(job);
+
+      expect(sriSoapMock.autorizacionComprobante).toHaveBeenCalled();
+      expect(callOrder).toContain('db:persist-en-proceso');
+      expect(callOrder).not.toContain('db:persist-failed');
+      expect(webhookMock.dispatch).not.toHaveBeenCalled();
+    });
+
+    it('should preserve EN_PROCESO and dispatch NO webhook when SRI is completely down (both reception and authorization throw transient errors)', async () => {
+      const connResetError = Object.assign(new Error('Connection reset by peer'), {
+        code: 'ECONNRESET',
+      });
+      sriSoapMock.validarComprobante.mockRejectedValueOnce(connResetError);
+      sriSoapMock.autorizacionComprobante.mockRejectedValueOnce(connResetError);
+
+      const job = { data: mockJobData } as Job<InvoiceQueueJobData>;
+
+      await consumer.process(job);
+
+      expect(callOrder).toContain('db:persist-en-proceso');
+      expect(callOrder).not.toContain('db:persist-failed');
+      expect(webhookMock.dispatch).not.toHaveBeenCalled();
+      expect(prismaMock.invoiceJob.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockJobData.invoiceJobId },
+          data: expect.objectContaining({
+            status: 'EN_PROCESO',
+          }),
+        }),
+      );
+    });
   });
 });
