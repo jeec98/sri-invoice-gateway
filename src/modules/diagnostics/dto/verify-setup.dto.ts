@@ -103,6 +103,14 @@ export class VerifySetupDto {
   ambiente?: '1' | '2';
 
   @ApiPropertyOptional({
+    description: 'Alias de ambiente (1 = Pruebas, 2 = Producción)',
+    example: '1',
+  })
+  @IsOptional()
+  @IsIn(['1', '2'])
+  environment?: '1' | '2';
+
+  @ApiPropertyOptional({
     description: 'Lista de establecimientos y puntos de emisión a diagnosticar',
     type: [EstablishmentInputDto],
   })
