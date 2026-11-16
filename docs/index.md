@@ -32,6 +32,9 @@ features:
   - icon: 🪝
     title: Webhooks HMAC-SHA256
     details: Notificaciones asíncronas con firma criptográfica X-SRI-Gateway-Signature, protección SSRF contra IPs privadas y reintentos automáticos.
+  - icon: 🧾
+    title: Perfil Tributario y Retenciones
+    details: Consulta de contribuyentes por RUC y evaluación de elegibilidad de retenciones con catálogos SRI en caché, consulta en línea y sincronización asíncrona.
 ---
 
 ## Arquitectura de Integración 2-Tier

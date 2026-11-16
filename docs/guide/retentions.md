@@ -6,7 +6,28 @@ La emisión es completamente asíncrona: el endpoint valida el esquema, genera l
 
 ---
 
-## 1. Flujo de Emisión de Retenciones
+## 1. Evaluar la Retención Antes de Emitir
+
+Antes de construir el comprobante, el backend de tu SaaS puede consultar los perfiles tributarios del comprador y del vendedor y pedir al gateway una evaluación de elegibilidad:
+
+```bash
+curl -X POST https://sri-gateway.tu-dominio.com/v1/taxpayers/withholding-eligibility \
+  -H "Authorization: Bearer sri_live_TU_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "buyerRuc": "1790016919001",
+    "sellerRuc": "1790011674001",
+    "codDocSustento": "01"
+  }'
+```
+
+La respuesta devuelve los perfiles evaluados, quién retiene, las obligaciones de Renta e IVA y las reglas aplicadas. Para una Liquidación de Compra (`codDocSustento: "03"`), envía ese código explícitamente. Si el vendedor es RIMPE Negocio Popular, `emitirCeroInformativa` permite indicar si tu sistema debe emitir la retención informativa al 0%.
+
+Usa `applyRetention`, `reasonCode`, `motivoLegal` y `reglasAplicables` para guiar el flujo de tu SaaS, pero no publiques la API Key en el navegador. Ver la [referencia del endpoint y campos opcionales](/api/endpoints#12-post-v1taxpayerswithholding-eligibility).
+
+---
+
+## 2. Flujo de Emisión de Retenciones
 
 ```mermaid
 sequenceDiagram
@@ -34,7 +55,7 @@ sequenceDiagram
 
 ---
 
-## 2. Estructura del Comprobante de Retención v2.0.0
+## 3. Estructura del Comprobante de Retención v2.0.0
 
 A diferencia de la versión 1.0.0 legacy, la versión 2.0.0 del SRI organiza las retenciones por **Documento de Sustento** (`docsSustento`):
 
@@ -57,7 +78,7 @@ A diferencia de la versión 1.0.0 legacy, la versión 2.0.0 del SRI organiza las
 
 ---
 
-## 3. Ejemplo de Emisión (`POST /v1/tenants/:tenantId/retentions`)
+## 4. Ejemplo de Emisión (`POST /v1/tenants/:tenantId/retentions`)
 
 ### Petición HTTP
 ```bash
@@ -148,7 +169,7 @@ curl -X POST https://sri-gateway.tu-dominio.com/v1/tenants/TENANT_UUID/retention
 
 ---
 
-## 4. Consulta del Estado de la Retención
+## 5. Consulta del Estado de la Retención
 
 Puedes consultar el estado en cualquier momento con la Clave de Acceso generada:
 

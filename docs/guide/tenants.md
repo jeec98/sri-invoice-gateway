@@ -74,3 +74,20 @@ curl "https://tu-api.up.railway.app/v1/tenants?page=1&limit=10" \
 ```
 
 > El campo `hasActiveCertificate` te indica al instante si el negocio ya tiene un certificado `.p12` válido cargado para poder facturar.
+
+---
+
+## Consultar el Perfil Tributario de un Contribuyente
+
+Además de administrar los negocios emisores de tu cuenta, tu SaaS puede consultar los datos tributarios de compradores o proveedores por RUC:
+
+```bash
+curl "https://tu-api.up.railway.app/v1/taxpayers/1790016919001" \
+  -H "Authorization: Bearer sri_live_tu_api_key"
+```
+
+La respuesta incluye razón social, tipo de persona, régimen tributario, obligación contable, calificación como contribuyente especial o agente de retención y estado disponible. El servicio consulta la caché, los perfiles y catálogos locales, y luego intenta consultar el SRI en línea. Revisa los campos `source`, `stale` y `degraded` antes de presentar los datos como actuales.
+
+Para solicitar una actualización en línea, agrega `?refresh=true`. Esta consulta omite Redis y el perfil local, pero sigue aplicando los controles de disponibilidad del SRI. La operación requiere la API Key del SaaS y está sujeta al límite de tasa habitual.
+
+Si tu flujo emite comprobantes de retención, puedes evaluar la relación comprador-vendedor con [`POST /v1/taxpayers/withholding-eligibility`](/api/endpoints#12-post-v1taxpayerswithholding-eligibility). Consulta también la [guía de retenciones](/guide/retentions) y la [referencia completa de la API](/api/endpoints).
