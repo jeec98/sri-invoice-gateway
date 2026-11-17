@@ -147,11 +147,21 @@ export class DiagnosticsService {
 
     if (activeCert) {
       try {
+        let rawEncrypted: Buffer | undefined;
         if (activeCert.p12Binary) {
-          certBuffer = Buffer.from(activeCert.p12Binary);
+          rawEncrypted = Buffer.from(activeCert.p12Binary);
         } else if (activeCert.p12FilePath) {
           const fs = await import('node:fs/promises');
-          certBuffer = await fs.readFile(activeCert.p12FilePath);
+          rawEncrypted = await fs.readFile(activeCert.p12FilePath);
+        }
+
+        if (rawEncrypted) {
+          try {
+            certBuffer = this.aesGcm.decryptBuffer(rawEncrypted);
+          } catch {
+            // Buffer ya en texto plano o formato previo
+            certBuffer = rawEncrypted;
+          }
         }
 
         if (activeCert.passwordCiphertext && activeCert.passwordIv && activeCert.passwordAuthTag) {
