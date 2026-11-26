@@ -26,6 +26,15 @@ export type TaxpayerProfileSource =
 export type WhoWithholds =
   'BUYER_WITHHOLDS' | 'SELLER_WITHHOLDS_NA' | 'NEITHER' | 'BUYER_ON_LIQUIDACION';
 
+export type TipoOperacionRetencion =
+  | 'ESTANDAR'
+  | 'LIQUIDACION_COMPRA'
+  | 'PAGO_EXTERIOR'
+  | 'DIVIDENDOS'
+  | 'TURISMO_RECEPTIVO'
+  | 'AGREGADOR_PAGO'
+  | 'EMISOR_TARJETA_SEGURO';
+
 export class TaxpayerProfileResponseDto {
   @ApiProperty({ example: '1790016919001' })
   ruc: string;
@@ -62,6 +71,12 @@ export class TaxpayerProfileResponseDto {
 
   @ApiPropertyOptional({ example: 'NAC-DNCRASC20-00000001', nullable: true })
   resolucionAgenteRetencion: string | null;
+
+  @ApiPropertyOptional({ example: false })
+  esSectorPublico?: boolean;
+
+  @ApiPropertyOptional({ example: false })
+  esExportadorHabitual?: boolean;
 
   @ApiPropertyOptional({ example: 'ACTIVO', nullable: true })
   estadoContribuyente: string | null;
@@ -138,6 +153,16 @@ export class TaxpayerProfileOverrideDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsBoolean()
+  esSectorPublico?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  esExportadorHabitual?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   estadoContribuyente?: string | null;
 }
@@ -165,6 +190,30 @@ export class WithholdingEligibilityDto {
   @IsOptional()
   @IsBoolean()
   emitirCeroInformativa?: boolean;
+
+  @ApiPropertyOptional({
+    enum: [
+      'ESTANDAR',
+      'LIQUIDACION_COMPRA',
+      'PAGO_EXTERIOR',
+      'DIVIDENDOS',
+      'TURISMO_RECEPTIVO',
+      'AGREGADOR_PAGO',
+      'EMISOR_TARJETA_SEGURO',
+    ],
+    default: 'ESTANDAR',
+  })
+  @IsOptional()
+  @IsIn([
+    'ESTANDAR',
+    'LIQUIDACION_COMPRA',
+    'PAGO_EXTERIOR',
+    'DIVIDENDOS',
+    'TURISMO_RECEPTIVO',
+    'AGREGADOR_PAGO',
+    'EMISOR_TARJETA_SEGURO',
+  ])
+  tipoOperacion?: TipoOperacionRetencion;
 
   @ApiPropertyOptional({ type: TaxpayerProfileOverrideDto })
   @IsOptional()
