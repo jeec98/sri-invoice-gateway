@@ -29,6 +29,7 @@ import {
   TaxpayerProfileResponseDto,
   TaxpayerRegimenTributario,
   TaxpayerTipoPersona,
+  TipoOperacionRetencion,
   TriggerSyncDto,
   TriggerSyncResponseDto,
   WhoWithholds,
@@ -39,9 +40,11 @@ import { SriLiveLookupService, SriLiveTaxpayerData } from './sri-live-lookup.ser
 
 interface EligibilityEvalContext {
   codDoc: string;
+  tipoOperacion: TipoOperacionRetencion;
   buyer: TaxpayerProfileResponseDto;
   seller: TaxpayerProfileResponseDto;
   buyerEligible: boolean;
+  buyerExportadorHabitual: boolean;
   sellerIsRimpePopular: boolean;
   bothSpecial: boolean;
   emitirCeroInformativa: boolean;
@@ -69,7 +72,7 @@ interface EligibilityDecisionRule {
 const WITHHOLDING_DECISION_RULES: readonly EligibilityDecisionRule[] = [
   {
     id: 'LIQUIDACION_COMPRA_03',
-    matches: (ctx) => ctx.codDoc === '03',
+    matches: (ctx) => ctx.codDoc === '03' || ctx.tipoOperacion === 'LIQUIDACION_COMPRA',
     resolve: (ctx) => ({
       whoWithholds: 'BUYER_ON_LIQUIDACION',
       obligatorioRenta: true,
@@ -85,20 +88,41 @@ const WITHHOLDING_DECISION_RULES: readonly EligibilityDecisionRule[] = [
     }),
   },
   {
-    id: 'BUYER_NOT_WITHHOLDING_AGENT',
-    matches: (ctx) => !ctx.buyerEligible || ctx.buyer.regimenTributario === 'RIMPE_NEGOCIO_POPULAR',
+    id: 'OBLIGADO_PAGO_EXTERIOR',
+    matches: (ctx) =>
+      ctx.tipoOperacion === 'PAGO_EXTERIOR' &&
+      Boolean(ctx.buyer.obligadoContabilidad || ctx.buyerEligible),
+    resolve: (ctx) => ({
+      whoWithholds: 'BUYER_WITHHOLDS',
+      obligatorioRenta: true,
+      obligatorioIva: true,
+      aplicaRetencionIvaEntreEspeciales: false,
+      motivoLegal:
+        'Pago al exterior: Todo contribuyente obligado a llevar contabilidad (o agente de retención) debe retener Impuesto a la Renta e IVA en pagos o acreditaciones al exterior.',
+      reglasAplicables: ['PAGO_EXTERIOR_OBLIGADO_CONTABILIDAD'],
+      buyerEligible: true,
+      applyRetention: true,
+      zeroInformativePolicy: false,
+      reasonCode: 'OBLIGADO_PAGO_EXTERIOR',
+    }),
+  },
+  {
+    id: 'OBLIGADO_DIVIDENDOS',
+    matches: (ctx) =>
+      ctx.tipoOperacion === 'DIVIDENDOS' &&
+      Boolean(ctx.buyer.obligadoContabilidad || ctx.buyerEligible),
     resolve: () => ({
-      whoWithholds: 'NEITHER',
-      obligatorioRenta: false,
+      whoWithholds: 'BUYER_WITHHOLDS',
+      obligatorioRenta: true,
       obligatorioIva: false,
       aplicaRetencionIvaEntreEspeciales: false,
       motivoLegal:
-        'El comprador no tiene calificación de Agente de Retención ni Contribuyente Especial para comprobante estándar.',
-      reglasAplicables: ['NO_AGENTE_NO_RETIENE'],
-      buyerEligible: false,
-      applyRetention: false,
+        'Distribución de dividendos: Toda sociedad o contribuyente obligado a llevar contabilidad debe efectuar retención en la fuente de Impuesto a la Renta sobre dividendos.',
+      reglasAplicables: ['DIVIDENDOS_OBLIGADO_CONTABILIDAD'],
+      buyerEligible: true,
+      applyRetention: true,
       zeroInformativePolicy: false,
-      reasonCode: 'BUYER_NOT_WITHHOLDING_AGENT',
+      reasonCode: 'OBLIGADO_DIVIDENDOS',
     }),
   },
   {
@@ -119,12 +143,72 @@ const WITHHOLDING_DECISION_RULES: readonly EligibilityDecisionRule[] = [
     }),
   },
   {
+    id: 'SECTORIAL_ESPECIAL',
+    matches: (ctx) =>
+      ctx.tipoOperacion === 'AGREGADOR_PAGO' ||
+      ctx.tipoOperacion === 'EMISOR_TARJETA_SEGURO' ||
+      (ctx.tipoOperacion === 'TURISMO_RECEPTIVO' &&
+        !ctx.seller.esContribuyenteEspecial &&
+        !ctx.seller.esAgenteRetencion),
+    resolve: (ctx) => ({
+      whoWithholds: 'BUYER_WITHHOLDS',
+      obligatorioRenta: true,
+      obligatorioIva: true,
+      aplicaRetencionIvaEntreEspeciales: false,
+      motivoLegal:
+        'Operación sectorial sujeta a retención por ley (Turismo receptivo / Agregador de pago / Emisor de tarjeta o seguros).',
+      reglasAplicables: [`SECTORIAL_${ctx.tipoOperacion}`],
+      buyerEligible: true,
+      applyRetention: true,
+      zeroInformativePolicy: false,
+      reasonCode: `SECTORIAL_${ctx.tipoOperacion}`,
+    }),
+  },
+  {
+    id: 'EXPORTADOR_HABITUAL_IVA_ONLY',
+    matches: (ctx) =>
+      !ctx.buyerEligible &&
+      ctx.buyerExportadorHabitual &&
+      ctx.buyer.regimenTributario !== 'RIMPE_NEGOCIO_POPULAR',
+    resolve: () => ({
+      whoWithholds: 'BUYER_WITHHOLDS',
+      obligatorioRenta: false,
+      obligatorioIva: true,
+      aplicaRetencionIvaEntreEspeciales: false,
+      motivoLegal:
+        'Exportador Habitual (no designado Agente de Retención de Renta): debe retener 100% de IVA en adquisiciones destinadas a exportación.',
+      reglasAplicables: ['EXPORTADOR_HABITUAL_IVA_100'],
+      buyerEligible: true,
+      applyRetention: true,
+      zeroInformativePolicy: false,
+      reasonCode: 'EXPORTADOR_HABITUAL_IVA_ONLY',
+    }),
+  },
+  {
+    id: 'BUYER_NOT_WITHHOLDING_AGENT',
+    matches: (ctx) => !ctx.buyerEligible || ctx.buyer.regimenTributario === 'RIMPE_NEGOCIO_POPULAR',
+    resolve: () => ({
+      whoWithholds: 'NEITHER',
+      obligatorioRenta: false,
+      obligatorioIva: false,
+      aplicaRetencionIvaEntreEspeciales: false,
+      motivoLegal:
+        'El comprador no tiene calificación de Agente de Retención, Contribuyente Especial, Sector Público ni Exportador Habitual para esta operación.',
+      reglasAplicables: ['NO_AGENTE_NO_RETIENE'],
+      buyerEligible: false,
+      applyRetention: false,
+      zeroInformativePolicy: false,
+      reasonCode: 'BUYER_NOT_WITHHOLDING_AGENT',
+    }),
+  },
+  {
     id: 'BUYER_AGENT_WITHHOLDS',
     matches: () => true,
     resolve: (ctx) => {
       const obligatorioIva = !(
         ctx.buyer.esAgenteRetencion &&
         !ctx.buyer.esContribuyenteEspecial &&
+        !ctx.buyer.esSectorPublico &&
         ctx.seller.esContribuyenteEspecial
       );
       const reglasAplicables = [
@@ -143,7 +227,7 @@ const WITHHOLDING_DECISION_RULES: readonly EligibilityDecisionRule[] = [
         obligatorioIva,
         aplicaRetencionIvaEntreEspeciales: ctx.bothSpecial,
         motivoLegal:
-          'El comprador calificado como Agente de Retención/CE debe emitir comprobante de retención 07 sobre esta compra.',
+          'El comprador calificado (Agente de Retención / CE / Sector Público) debe emitir comprobante de retención 07 sobre esta compra.',
         reglasAplicables,
         buyerEligible: ctx.buyerEligible,
         applyRetention: true,
@@ -203,6 +287,7 @@ export class TaxpayersService {
           specialTaxpayerRes: dbProfile.specialTaxpayerRes,
           isWithholdingAgent: dbProfile.isWithholdingAgent,
           withholdingAgentRes: dbProfile.withholdingAgentRes,
+          esSectorPublico: this.inferSectorPublico(dbProfile.tipoContribuyente),
           taxpayerState: dbProfile.taxpayerState,
           actividadEconomica: dbProfile.actividadEconomica,
           direccionMatriz: dbProfile.direccionMatriz,
@@ -233,6 +318,7 @@ export class TaxpayersService {
           specialTaxpayerRes: null,
           isWithholdingAgent: false,
           withholdingAgentRes: null,
+          esSectorPublico: this.inferSectorPublico(live.tipoContribuyente),
           taxpayerState: live.estadoContribuyente ?? 'ACTIVO',
           actividadEconomica: live.actividadEconomica,
           direccionMatriz: live.direccionMatriz,
@@ -262,6 +348,7 @@ export class TaxpayersService {
             specialTaxpayerRes: dbProfile.specialTaxpayerRes,
             isWithholdingAgent: dbProfile.isWithholdingAgent,
             withholdingAgentRes: dbProfile.withholdingAgentRes,
+            esSectorPublico: this.inferSectorPublico(dbProfile.tipoContribuyente),
             taxpayerState: dbProfile.taxpayerState,
             actividadEconomica: dbProfile.actividadEconomica,
             direccionMatriz: dbProfile.direccionMatriz,
@@ -288,9 +375,13 @@ export class TaxpayersService {
 
     const ctx: EligibilityEvalContext = {
       codDoc: dto.codDocSustento || '01',
+      tipoOperacion: dto.tipoOperacion || 'ESTANDAR',
       buyer,
       seller,
-      buyerEligible: Boolean(buyer.esAgenteRetencion || buyer.esContribuyenteEspecial),
+      buyerEligible: Boolean(
+        buyer.esAgenteRetencion || buyer.esContribuyenteEspecial || buyer.esSectorPublico,
+      ),
+      buyerExportadorHabitual: Boolean(buyer.esExportadorHabitual),
       sellerIsRimpePopular: seller.regimenTributario === 'RIMPE_NEGOCIO_POPULAR',
       bothSpecial: Boolean(buyer.esContribuyenteEspecial && seller.esContribuyenteEspecial),
       emitirCeroInformativa: Boolean(dto.emitirCeroInformativa),
@@ -342,6 +433,12 @@ export class TaxpayersService {
         : {}),
       ...(override.resolucionAgenteRetencion !== undefined
         ? { resolucionAgenteRetencion: override.resolucionAgenteRetencion }
+        : {}),
+      ...(override.esSectorPublico !== undefined
+        ? { esSectorPublico: override.esSectorPublico }
+        : {}),
+      ...(override.esExportadorHabitual !== undefined
+        ? { esExportadorHabitual: override.esExportadorHabitual }
         : {}),
       ...(override.estadoContribuyente !== undefined
         ? { estadoContribuyente: override.estadoContribuyente }
@@ -524,6 +621,8 @@ export class TaxpayersService {
       specialTaxpayerRes: string | null;
       isWithholdingAgent: boolean;
       withholdingAgentRes: string | null;
+      esSectorPublico?: boolean;
+      esExportadorHabitual?: boolean;
       taxpayerState: string | null;
       actividadEconomica: string | null;
       direccionMatriz: string | null;
@@ -567,6 +666,8 @@ export class TaxpayersService {
       resolucionContribuyenteEspecial,
       esAgenteRetencion,
       resolucionAgenteRetencion,
+      esSectorPublico: base?.esSectorPublico ?? false,
+      esExportadorHabitual: base?.esExportadorHabitual ?? false,
       estadoContribuyente: base?.taxpayerState ?? special?.taxpayerState ?? null,
       actividadEconomica: base?.actividadEconomica ?? null,
       direccionMatriz: base?.direccionMatriz ?? null,
@@ -575,6 +676,18 @@ export class TaxpayersService {
       degraded,
       syncedAt: (special?.updatedAt ?? base?.updatedAt ?? null)?.toISOString() ?? null,
     };
+  }
+
+  private inferSectorPublico(tipoContribuyente?: string | null): boolean {
+    if (!tipoContribuyente) return false;
+    const norm = tipoContribuyente.toUpperCase();
+    return (
+      norm.includes('PUBLICO') ||
+      norm.includes('PÚBLICO') ||
+      norm.includes('PUBLICA') ||
+      norm.includes('PÚBLICA') ||
+      norm.includes('ESTADO')
+    );
   }
 
   private async persistProfileAndCache(

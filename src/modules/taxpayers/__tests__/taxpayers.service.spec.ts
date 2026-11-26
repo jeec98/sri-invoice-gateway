@@ -346,6 +346,90 @@ describe('TaxpayersService (TDD)', () => {
     expect(profile.resolucionContribuyenteEspecial).toBeNull();
   });
 
+  describe('evaluateWithholdingEligibility() extended SRI rules', () => {
+    const setupProfiles = (
+      buyerTipo: string | null = 'SOCIEDADES',
+      buyerObligado = true,
+      sellerRegimen: SriRegimenType = SriRegimenType.GENERAL,
+    ) => {
+      mockRedis.get.mockResolvedValue(null);
+      mockPrisma.sriTaxpayerSpecial.findUnique.mockResolvedValue(null);
+      mockPrisma.sriTaxpayerProfile.findUnique
+        .mockResolvedValueOnce({
+          ruc: '1790016919001',
+          razonSocial: 'COMPRADOR S.A.',
+          nombreComercial: null,
+          tipoPersona: 'SOCIEDAD',
+          tipoContribuyente: buyerTipo,
+          regimen: SriRegimenType.GENERAL,
+          obligatedAccounting: buyerObligado,
+          isSpecialTaxpayer: false,
+          specialTaxpayerRes: null,
+          isWithholdingAgent: false,
+          withholdingAgentRes: null,
+          taxpayerState: 'ACTIVO',
+          actividadEconomica: null,
+          direccionMatriz: null,
+          updatedAt: new Date(),
+          expiresAt: new Date(Date.now() + 60_000),
+        })
+        .mockResolvedValueOnce({
+          ruc: '1790011674001',
+          razonSocial: 'VENDEDOR S.A.',
+          nombreComercial: null,
+          tipoPersona: 'SOCIEDAD',
+          tipoContribuyente: 'SOCIEDADES',
+          regimen: sellerRegimen,
+          obligatedAccounting: true,
+          isSpecialTaxpayer: false,
+          specialTaxpayerRes: null,
+          isWithholdingAgent: false,
+          withholdingAgentRes: null,
+          taxpayerState: 'ACTIVO',
+          actividadEconomica: null,
+          direccionMatriz: null,
+          updatedAt: new Date(),
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+    };
+
+    it('applies withholding on PAGO_EXTERIOR when buyer is obligadoContabilidad=true even without agent status', async () => {
+      setupProfiles('SOCIEDADES', true);
+      const res = await service.evaluateWithholdingEligibility({
+        buyerRuc: '1790016919001',
+        sellerRuc: '1790011674001',
+        tipoOperacion: 'PAGO_EXTERIOR',
+      });
+      expect(res.applyRetention).toBe(true);
+      expect(res.reasonCode).toBe('OBLIGADO_PAGO_EXTERIOR');
+      expect(res.obligatorioRenta).toBe(true);
+    });
+
+    it('applies only 100% IVA for Exportador Habitual without Agente de Retención de Renta', async () => {
+      setupProfiles('SOCIEDADES', true);
+      const res = await service.evaluateWithholdingEligibility({
+        buyerRuc: '1790016919001',
+        sellerRuc: '1790011674001',
+        buyerProfileOverride: { esExportadorHabitual: true },
+      });
+      expect(res.applyRetention).toBe(true);
+      expect(res.reasonCode).toBe('EXPORTADOR_HABITUAL_IVA_ONLY');
+      expect(res.obligatorioRenta).toBe(false);
+      expect(res.obligatorioIva).toBe(true);
+    });
+
+    it('detects Sector Público from tipoContribuyente and enables withholding', async () => {
+      setupProfiles('ENTIDAD DEL SECTOR PUBLICO', true);
+      const res = await service.evaluateWithholdingEligibility({
+        buyerRuc: '1790016919001',
+        sellerRuc: '1790011674001',
+      });
+      expect(res.buyer.esSectorPublico).toBe(true);
+      expect(res.applyRetention).toBe(true);
+      expect(res.reasonCode).toBe('BUYER_AGENT_WITHHOLDS');
+    });
+  });
+
   // M-01 RED — BullMQ deterministic jobId deduplication, stale job cleanup, and anti-abuse cooldown
   describe('triggerSync() deduplication & cooldown', () => {
     it('uses deterministic jobId and removeOnComplete: true, and deduplicates when an active/waiting job exists', async () => {
