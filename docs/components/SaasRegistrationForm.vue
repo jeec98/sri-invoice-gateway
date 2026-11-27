@@ -135,6 +135,16 @@
           </div>
         </div>
 
+        <div v-if="createdClient.webhookSecret" class="sr-key-box">
+          <div class="sr-key-label">Tu Webhook Signing Secret (HMAC-SHA256):</div>
+          <div class="sr-key-row">
+            <code class="sr-key-value">{{ createdClient.webhookSecret }}</code>
+            <button type="button" class="sr-btn sr-btn-copy" @click="copyWebhookSecret">
+              {{ copiedWebhookSecret ? '¡Copiado!' : 'Copiar Secret' }}
+            </button>
+          </div>
+        </div>
+
         <div class="sr-summary-grid">
           <div class="sr-summary-item">
             <span class="sr-summary-label">Client ID</span>
@@ -194,6 +204,7 @@ interface CreatedApiClientResponse {
   name: string;
   ruc: string | null;
   apiKey: string;
+  webhookSecret?: string | null;
   webhookUrl: string | null;
   status: string;
 }
@@ -214,6 +225,7 @@ const serverError = ref<{ title: string; detail: string } | null>(null);
 const submitting = ref(false);
 const createdClient = ref<CreatedApiClientResponse | null>(null);
 const copiedKey = ref(false);
+const copiedWebhookSecret = ref(false);
 
 const resolvedApiBaseUrl = computed(() => {
   if (configuredApiUrl) {
@@ -244,6 +256,7 @@ function resetForm() {
 function handleStartAnother() {
   createdClient.value = null;
   copiedKey.value = false;
+  copiedWebhookSecret.value = false;
   resetForm();
 }
 
@@ -255,6 +268,21 @@ async function copyApiKey() {
   copiedKey.value = true;
   setTimeout(() => {
     copiedKey.value = false;
+  }, 2500);
+}
+
+async function copyWebhookSecret() {
+  if (
+    !createdClient.value?.webhookSecret ||
+    typeof navigator === 'undefined' ||
+    !navigator.clipboard
+  ) {
+    return;
+  }
+  await navigator.clipboard.writeText(createdClient.value.webhookSecret);
+  copiedWebhookSecret.value = true;
+  setTimeout(() => {
+    copiedWebhookSecret.value = false;
   }, 2500);
 }
 

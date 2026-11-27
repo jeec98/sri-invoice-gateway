@@ -63,6 +63,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
   const throttledClientRuc = '1793333333001';
   let apiKeyClientA = '';
   let clientAId = '';
+  let webhookSecretClientA = '';
   let apiKeyClientB = '';
   let clientBId = '';
 
@@ -238,13 +239,16 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
       plan: string;
       rateLimitRps: number;
       apiKey: string;
+      webhookSecret?: string;
     };
     expect(bodyA.name).toBe('E2E SaaS Alpha Platform');
     expect(bodyA.plan).toBe('DEFAULT');
     expect(bodyA.rateLimitRps).toBe(100);
     expect(bodyA.apiKey).toMatch(/^sri_live_[0-9a-f]{48}$/);
+    expect(bodyA.webhookSecret).toMatch(/^whsec_[0-9a-f]{48}$/);
     apiKeyClientA = bodyA.apiKey;
     clientAId = bodyA.id;
+    webhookSecretClientA = bodyA.webhookSecret || '';
 
     // 1b. Provision SaaS Client B (Multi-SaaS isolation peer)
     const resB = await fetch(`${baseUrl}/api-clients`, {
@@ -787,7 +791,7 @@ describe('SRI Invoice Gateway — 2-Tier Multi-SaaS E2E Suite', () => {
     const expectedHmac =
       'sha256=' +
       crypto
-        .createHmac('sha256', 'whsec_e2e_test_signing_secret')
+        .createHmac('sha256', webhookSecretClientA || 'whsec_e2e_test_signing_secret')
         .update(receivedWebhookBody)
         .digest('hex');
     expect(receivedWebhookSignature).toBe(expectedHmac);

@@ -78,7 +78,7 @@ describe('WebhookService', () => {
     expect(axios.post).not.toHaveBeenCalled();
   });
 
-  it('should fail safely in production if WEBHOOK_SIGNING_SECRET is missing', async () => {
+  it('should fail safely in production if both per-client webhookSecret and WEBHOOK_SIGNING_SECRET are missing', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.WEBHOOK_SIGNING_SECRET;
 
@@ -86,5 +86,28 @@ describe('WebhookService', () => {
 
     expect(result).toEqual({ delivered: false });
     expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it('should sign with per-client webhookSecret in production even when WEBHOOK_SIGNING_SECRET is unset', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.WEBHOOK_SIGNING_SECRET;
+    vi.mocked(axios.post).mockResolvedValueOnce({ status: 200 });
+
+    const perClientSecret = 'whsec_per_client_123456';
+    const result = await service.dispatch(
+      'https://saas.example.com/webhooks/sri',
+      samplePayload,
+      perClientSecret,
+    );
+
+    expect(result).toEqual({ delivered: true, statusCode: 200 });
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    const expectedSig = crypto
+      .createHmac('sha256', perClientSecret)
+      .update(JSON.stringify(samplePayload))
+      .digest('hex');
+    expect(vi.mocked(axios.post).mock.calls[0][2]?.headers).toMatchObject({
+      'X-SRI-Gateway-Signature': `sha256=${expectedSig}`,
+    });
   });
 });

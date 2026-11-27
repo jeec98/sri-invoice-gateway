@@ -28,6 +28,7 @@ export class ApiClientsService {
     const randomHex = crypto.randomBytes(24).toString('hex');
     const apiKey = `sri_live_${randomHex}`;
     const apiKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+    const webhookSecret = `whsec_${crypto.randomBytes(24).toString('hex')}`;
 
     try {
       const apiClient = await this.prisma.apiClient.create({
@@ -36,6 +37,7 @@ export class ApiClientsService {
           ruc: dto.ruc,
           apiKeyHash,
           webhookUrl: dto.webhookUrl ?? null,
+          webhookSecret,
           plan: 'DEFAULT',
           rateLimitRps: dto.rateLimitRps ?? 20,
           status: 'ACTIVE',

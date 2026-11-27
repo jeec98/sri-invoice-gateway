@@ -33,6 +33,7 @@ describe('InvoicesController & RetentionsController — Dynamic Idempotency Stat
     ruc: '1799999999001',
     apiKeyHash: 'hash',
     webhookUrl: 'https://saas.example.com/webhook',
+    webhookSecret: null,
     status: 'ACTIVE',
     plan: 'STANDARD',
     rateLimitRps: 100,
