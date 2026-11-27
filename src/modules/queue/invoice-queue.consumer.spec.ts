@@ -44,6 +44,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
     ruc: '1799999999001',
     apiKeyHash: 'hash-1',
     webhookUrl: 'https://api.saasplatform.com/sri-callback',
+    webhookSecret: null,
     status: 'ACTIVE',
     plan: 'STANDARD',
     rateLimitRps: 100,
@@ -246,6 +247,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
         jobId: 'job-1',
         status: 'AUTORIZADO',
       }),
+      null,
     );
   });
 
@@ -354,6 +356,7 @@ describe('InvoiceQueueConsumer — Hierarchical Certificate Resolution & Webhook
           status: 'AUTORIZADO',
           numeroAutorizacion: '0711202601179001167400110010010000001231234567815',
         }),
+        null,
       );
     });
 

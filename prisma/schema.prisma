@@ -11,8 +11,9 @@ model ApiClient {
   id           String    @id @default(uuid())
   name         String
   ruc          String?   @unique @db.VarChar(13)
-  apiKeyHash   String    @unique @map("api_key_hash") @db.VarChar(64)
-  webhookUrl   String?   @map("webhook_url")
+  apiKeyHash    String    @unique @map("api_key_hash") @db.VarChar(64)
+  webhookUrl    String?   @map("webhook_url")
+  webhookSecret String?   @map("webhook_secret") @db.VarChar(128)
   status       String    @default("ACTIVE")
   plan         String    @default("STANDARD")
   rateLimitRps Int       @default(100) @map("rate_limit_rps")

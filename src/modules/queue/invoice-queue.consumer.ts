@@ -58,6 +58,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
 
     // Resolve webhook destination: invoice level override or fallback to parent SaaS platform default
     const effectiveWebhookUrl = invoiceJob.webhookUrl || tenant.apiClient?.webhookUrl || '';
+    const effectiveWebhookSecret = tenant.apiClient?.webhookSecret ?? null;
 
     await this.prisma.invoiceJob.update({
       where: { id: invoiceJobId },
@@ -156,6 +157,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
             claveAcceso,
             ambiente: invoiceJob.ambiente,
             webhookUrl: effectiveWebhookUrl,
+            webhookSecret: effectiveWebhookSecret,
             error: recError,
           });
           return;
@@ -171,6 +173,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
           claveAcceso,
           ambiente: invoiceJob.ambiente,
           webhookUrl: effectiveWebhookUrl,
+          webhookSecret: effectiveWebhookSecret,
           status: 'DEVUELTA',
           sriMessages: recepcionResult.mensajes,
         });
@@ -214,6 +217,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
           claveAcceso,
           ambiente: invoiceJob.ambiente,
           webhookUrl: effectiveWebhookUrl,
+          webhookSecret: effectiveWebhookSecret,
           status: 'AUTORIZADO',
           numeroAutorizacion: authResult.numeroAutorizacion || claveAcceso,
           fechaAutorizacion: authResult.fechaAutorizacion,
@@ -244,6 +248,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
         claveAcceso,
         ambiente: invoiceJob.ambiente,
         webhookUrl: effectiveWebhookUrl,
+        webhookSecret: effectiveWebhookSecret,
         status: 'NO_AUTORIZADO',
         numeroAutorizacion: authResult.numeroAutorizacion,
         fechaAutorizacion: authResult.fechaAutorizacion,
@@ -296,6 +301,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
         claveAcceso,
         ambiente: invoiceJob?.ambiente || '1',
         webhookUrl: effectiveWebhookUrl,
+        webhookSecret: effectiveWebhookSecret,
         status: 'FAILED',
         sriMessages: failureMessages,
       });
@@ -308,9 +314,11 @@ export class InvoiceQueueConsumer extends WorkerHost {
     claveAcceso: string;
     ambiente: string;
     webhookUrl: string;
+    webhookSecret?: string | null;
     error: unknown;
   }): Promise<void> {
-    const { invoiceJobId, referenceId, claveAcceso, ambiente, webhookUrl, error } = params;
+    const { invoiceJobId, referenceId, claveAcceso, ambiente, webhookUrl, webhookSecret, error } =
+      params;
 
     let authResult: SriAutorizacionResult | null = null;
     try {
@@ -347,6 +355,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
         claveAcceso,
         ambiente,
         webhookUrl,
+        webhookSecret,
         status: 'AUTORIZADO',
         numeroAutorizacion: authResult.numeroAutorizacion || claveAcceso,
         fechaAutorizacion: authResult.fechaAutorizacion,
@@ -382,6 +391,7 @@ export class InvoiceQueueConsumer extends WorkerHost {
     claveAcceso: string;
     ambiente: string;
     webhookUrl: string;
+    webhookSecret?: string | null;
     status: 'AUTORIZADO' | 'NO_AUTORIZADO' | 'DEVUELTA' | 'EN_PROCESO' | 'FAILED';
     numeroAutorizacion?: string;
     fechaAutorizacion?: string;
@@ -408,19 +418,23 @@ export class InvoiceQueueConsumer extends WorkerHost {
 
     // 2. Dispatch webhook notification to tenant SaaS if webhookUrl is present
     if (params.webhookUrl) {
-      const webhookResult = await this.webhookService.dispatch(params.webhookUrl, {
-        event: 'sri.invoice.completed',
-        jobId: params.invoiceJobId,
-        referenceId: params.referenceId,
-        claveAcceso: params.claveAcceso,
-        ambiente: params.ambiente,
-        status: params.status,
-        numeroAutorizacion: params.numeroAutorizacion || null,
-        fechaAutorizacion: params.fechaAutorizacion || null,
-        authorizedXml: params.authorizedXml || null,
-        sriMessages: params.sriMessages,
-        timestamp: new Date().toISOString(),
-      });
+      const webhookResult = await this.webhookService.dispatch(
+        params.webhookUrl,
+        {
+          event: 'sri.invoice.completed',
+          jobId: params.invoiceJobId,
+          referenceId: params.referenceId,
+          claveAcceso: params.claveAcceso,
+          ambiente: params.ambiente,
+          status: params.status,
+          numeroAutorizacion: params.numeroAutorizacion || null,
+          fechaAutorizacion: params.fechaAutorizacion || null,
+          authorizedXml: params.authorizedXml || null,
+          sriMessages: params.sriMessages,
+          timestamp: new Date().toISOString(),
+        },
+        params.webhookSecret,
+      );
 
       // 3. Record webhook delivery outcome
       await this.prisma.invoiceJob.update({

@@ -24,11 +24,12 @@ export class WebhookService {
   async dispatch(
     webhookUrl: string,
     payload: WebhookNotificationPayload,
+    webhookSecret?: string | null,
   ): Promise<{ delivered: boolean; statusCode?: number }> {
-    const envSecret = process.env.WEBHOOK_SIGNING_SECRET;
-    if (!envSecret && process.env.NODE_ENV === 'production') {
+    const effectiveSecret = webhookSecret?.trim() || process.env.WEBHOOK_SIGNING_SECRET;
+    if (!effectiveSecret && process.env.NODE_ENV === 'production') {
       this.logger.error(
-        'MISSING_WEBHOOK_SECRET: WEBHOOK_SIGNING_SECRET is required in production.',
+        'MISSING_WEBHOOK_SECRET: Neither ApiClient.webhookSecret nor WEBHOOK_SIGNING_SECRET is configured in production.',
       );
       return { delivered: false };
     }
@@ -41,7 +42,7 @@ export class WebhookService {
     }
 
     const bodyString = JSON.stringify(payload);
-    const secret = envSecret || 'whsec_sri_gateway_default_secret_key';
+    const secret = effectiveSecret || 'whsec_sri_gateway_default_secret_key';
     const signature = crypto.createHmac('sha256', secret).update(bodyString).digest('hex');
 
     const timeoutMs = Number(process.env.WEBHOOK_TIMEOUT_MS || 10000);

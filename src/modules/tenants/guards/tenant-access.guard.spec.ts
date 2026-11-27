@@ -18,6 +18,7 @@ describe('TenantAccessGuard — Double-Lock Multi-Tenant Authorization', () => {
     ruc: '1799999999001',
     apiKeyHash: 'hash-1',
     webhookUrl: 'https://client-a.com/webhook',
+    webhookSecret: null,
     status: 'ACTIVE',
     plan: 'STANDARD',
     rateLimitRps: 100,
